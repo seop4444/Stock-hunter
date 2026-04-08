@@ -20,15 +20,15 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock hunter v11 (클라우드 완벽 패치)", layout="wide")
-st.title(" 🎯 Stock hunter: Pine Script Sync Hunter v11 (웹서버용)")
+st.set_page_config(page_title="LazyDog TV Sync Hunter v12 (실전 샌드위치 패치)", layout="wide")
+st.title(" 🎯 LazyDog: Pine Script Sync Hunter v12 (매복 특화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔 (모바일 지원)
-**업데이트:** 클라우드 서버 배포 시 발생하는 에러(pandas-ta, winsound)를 완벽하게 차단한 버전입니다.
+**업데이트:** [🥪 샌드위치 대기] 로직이 '급등 ➡️ 도지(눌림)' 상태인 실전 매복 타점을 잡아내도록 수정되었습니다.
 """)
 
 # ==========================================
-# 1.5. 실시간 원유 차트 & 경제 뉴스 헤드라인 (시간 포함)
+# 1.5. 실시간 원유 차트 & 경제 뉴스 헤드라인
 # ==========================================
 @st.cache_data(ttl=60)
 def get_dashboard_data():
@@ -479,19 +479,30 @@ def analyze_stock(ticker_info, timeframe):
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
+        # === 샌드위치 (도지 매복 대기) 로직 ===
+        # 어제(d1)는 장대양봉(7% 이상), 오늘(d0)은 도지(몸통 3% 이하)이면서 어제 중심선 위에서 가격 방어
         try:
-            d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
-            if ((d2['Close'] - d2['Open']) / d2['Open'] >= 0.10 and 
-                abs(d1['Close'] - d1['Open']) / d1['Open'] <= 0.03 and 
-                d1['Close'] > d2['Open'] and 
-                (d0['Close'] - d0['Open']) / d0['Open'] >= 0.07):
+            d0, d1 = df.iloc[-1], df.iloc[-2]
+            
+            rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
+            is_long_d1 = rise_d1 >= 0.07  # 어제 7% 이상 장대양봉
+            
+            body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
+            is_doji_d0 = body_d0 <= 0.03  # 오늘 몸통 3% 이하 도지
+            
+            mid_d1 = (d1['Close'] + d1['Open']) / 2
+            is_hold_d0 = d0['Close'] >= mid_d1  # 어제 몸통의 절반(중심선) 위에서 가격 방어
+            
+            if is_long_d1 and is_doji_d0 and is_hold_d0:
                 result["sandwich"] = {
                     "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                    "패턴": "🥪 장대-도지-장대", "상승률": f"현재봉 +{round(((d0['Close'] - d0['Open']) / d0['Open'])*100, 1)}%",
+                    "패턴": "🥪 샌드위치 대기 (매복)",
+                    "상승률": f"어제 +{round(rise_d1*100, 1)}% / 오늘 도지",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
 
+        # === 급등 대기 (눌림목) 로직 ===
         try:
             d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
             if d1['Open'] > 0 and d2['Volume'] > 0:
@@ -594,11 +605,11 @@ if st.session_state.running:
             
             main_tab1, main_tab2 = st.tabs(["📅 일봉 (Daily)", "⏳ 4시간봉 (4-Hour)"])
             with main_tab1:
-                t1_a, t1_b, t1_c, t1_d, t1_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치"])
+                t1_a, t1_b, t1_c, t1_d, t1_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 대기"])
                 d_table_sniper, d_table_entry, d_table_touch, d_table_surge, d_table_sandwich = t1_a.empty(), t1_b.empty(), t1_c.empty(), t1_d.empty(), t1_e.empty()
                 
             with main_tab2:
-                t2_a, t2_b, t2_c, t2_d, t2_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치"])
+                t2_a, t2_b, t2_c, t2_d, t2_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 대기"])
                 h_table_sniper, h_table_entry, h_table_touch, h_table_surge, h_table_sandwich = t2_a.empty(), t2_b.empty(), t2_c.empty(), t2_d.empty(), t2_e.empty()
 
             with ThreadPoolExecutor(max_workers=10) as executor:
