@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v14 (네이버 차단 회피)", layout="wide")
-st.title(" 🎯 Stock Hunter: Pine Script Sync Hunter v14 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v16 (발견 시점 복구)", layout="wide")
+st.title(" 🎯 Stock Hunter v16 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 클라우드 서버(해외 IP) 이용 시 네이버 금융에서 종목 목록을 차단하는 에러를 영구적으로 해결했습니다. (FDR 공식 연동)
+**업데이트:** 스나이퍼 및 추세 진입 시그널의 '발견 시점(오늘/1일 전 등)' 표시가 복구되었습니다. 팝업 알림 제거됨.
 """)
 
 # ==========================================
@@ -105,7 +105,6 @@ def get_stock_list_final(market_name, scan_limit):
                 if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
         else:
-            # 한국 시장 (KOSPI / KOSDAQ) - 해외 IP 차단 방지용 FDR 직접 호출
             df = fdr.StockListing('KOSPI') if "KOSPI" in market_name else fdr.StockListing('KOSDAQ')
             suffix = ".KS" if "KOSPI" in market_name else ".KQ"
             
@@ -149,7 +148,7 @@ def calc_supertrend(df, period=10, multiplier=3.0):
     return dir_list
 
 # ==========================================
-# 4. 분석 로직 (스텔스 다운로드 + 타점 완화)
+# 4. 분석 로직
 # ==========================================
 def analyze_stock(ticker_info, timeframe):
     ticker = ticker_info['code']
@@ -193,7 +192,7 @@ def analyze_stock(ticker_info, timeframe):
             if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
                 result["sandwich"] = {
                     "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                    "패턴": "🥪 샌드위치 매복 (도지)",
+                    "패턴": "🥪 샌드위 매복 (도지)",
                     "상승률": f"어제 +{round(rise_d1*100, 1)}% 급등",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
@@ -225,20 +224,23 @@ def analyze_stock(ticker_info, timeframe):
             is_super_up = curr.get('stDir') == 1
             is_danger = ((curr['Close'] - curr['Open']) > (curr['Open'] * 0.10)) or (curr['RSI'] > 75) or (((curr['Close'] - curr['EMA20']) / curr['EMA20']) > 0.20)
 
+            # 발견 시점 문자열 복구 완료
+            when_txt = f"{i}봉 전" if timeframe == "4H" else {0: "오늘", 1: "1일 전", 2: "2일 전"}.get(i, f"{i}일 전")
+
             if is_cross and is_trend and is_super_up and not is_danger:
-                if result['sniper'] is None: result["sniper"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"🎯 스나이퍼", "발견시간": time.strftime("%H:%M:%S")}
+                if result['sniper'] is None: result["sniper"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"🎯 스나이퍼 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
             elif is_cross and not is_danger:
-                if result['entry'] is None: result["entry"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"✅ 추세 진입", "발견시간": time.strftime("%H:%M:%S")}
+                if result['entry'] is None: result["entry"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"✅ 추세 진입 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
             
             t_lines = [line for diff, line in [((curr['Close']-curr['EMA20'])/curr['EMA20'], "20선"), ((curr['Close']-curr['EMA60'])/curr['EMA60'], "60선"), ((curr['Close']-curr['EMA200'])/curr['EMA200'], "200선") if not pd.isna(curr['EMA200']) else (-1, "")] if 0 <= diff <= 0.02]
             if t_lines and result['touch'] is None:
-                result["touch"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "터치 라인": f"🧲 {', '.join(t_lines)} 지지", "발견시간": time.strftime("%H:%M:%S")}
+                result["touch"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "터치 라인": f"🧲 {', '.join(t_lines)} 지지 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
 
         return result
     except: return result
 
 # ==========================================
-# 5. 포트폴리오 (단순화 - yfinance로 한국주식 조회)
+# 5. 포트폴리오
 # ==========================================
 if 'portfolio_df' not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
@@ -346,7 +348,7 @@ if st.session_state.running:
                             if sound_on and HAS_WINSOUND: 
                                 try: winsound.Beep(1000, 150)
                                 except: pass
-                            st.toast(f"발견! {stock['name']}", icon="🚨")
+                            # 알림 팝업 완전 제거
                             
                         if d_sniper: d_table_sniper.dataframe(pd.DataFrame(d_sniper), use_container_width=True)
                         if d_entry: d_table_entry.dataframe(pd.DataFrame(d_entry), use_container_width=True)
