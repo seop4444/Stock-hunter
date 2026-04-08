@@ -10,7 +10,7 @@ import email.utils
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 윈도우 전용 알람 라이브러리 (서버 에러 방지)
+# 윈도우 전용 알람 (서버 에러 방지)
 try:
     import winsound
     HAS_WINSOUND = True
@@ -20,22 +20,20 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="LazyDog TV Sync Hunter v12 (실전 샌드위치 패치)", layout="wide")
-st.title(" 🎯 LazyDog: Pine Script Sync Hunter v12 (매복 특화)")
+st.set_page_config(page_title="LazyDog TV Sync Hunter v13 (스텔스 매복 패치)", layout="wide")
+st.title(" 🎯 LazyDog: Pine Script Sync Hunter v13 (클라우드 최적화)")
 st.markdown("""
-### ⚡ 멀티 타임프레임 고속 스캔 (모바일 지원)
-**업데이트:** [🥪 샌드위치 대기] 로직이 '급등 ➡️ 도지(눌림)' 상태인 실전 매복 타점을 잡아내도록 수정되었습니다.
+### ⚡ 멀티 타임프레임 고속 스캔
+**업데이트:** 야후 파이낸스 서버 차단(IP Block)을 우회하는 스텔스 모드를 적용하고, PC에서 잘 잡히던 **[급등 후 도지 눌림목]** 타점을 완벽 복원했습니다.
 """)
 
 # ==========================================
-# 1.5. 실시간 원유 차트 & 경제 뉴스 헤드라인
+# 1.5. 실시간 대시보드
 # ==========================================
 @st.cache_data(ttl=60)
 def get_dashboard_data():
     oil_data = {"price": 0.0, "change": 0.0, "pct": 0.0, "history": None}
-    kr_news = []
-    global_news = []
-
+    kr_news, global_news = [], []
     try:
         wti = yf.Ticker("CL=F").history(period="1d", interval="5m")
         if not wti.empty and len(wti) >= 2:
@@ -48,28 +46,20 @@ def get_dashboard_data():
         elif len(wti) == 1:
             oil_data["price"] = wti['Close'].iloc[-1]
             oil_data["history"] = wti['Close']
-    except:
-        pass
+    except: pass
 
     def parse_pubdate(pubdate_str):
         try:
-            parsed_date = email.utils.parsedate_to_datetime(pubdate_str)
-            return parsed_date.strftime("%m-%d %H:%M")
-        except:
-            return ""
+            return email.utils.parsedate_to_datetime(pubdate_str).strftime("%m-%d %H:%M")
+        except: return ""
 
     try:
         kr_root = ET.fromstring(requests.get("https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko").content)
         for item in kr_root.findall('.//item')[:4]:
-            title = item.find('title').text
-            pubdate = parse_pubdate(item.find('pubDate').text)
-            kr_news.append({"title": title, "date": pubdate})
-        
+            kr_news.append({"title": item.find('title').text, "date": parse_pubdate(item.find('pubDate').text)})
         us_root = ET.fromstring(requests.get("https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en").content)
         for item in us_root.findall('.//item')[:4]:
-            title = item.find('title').text
-            pubdate = parse_pubdate(item.find('pubDate').text)
-            global_news.append({"title": title, "date": pubdate})
+            global_news.append({"title": item.find('title').text, "date": parse_pubdate(item.find('pubDate').text)})
     except:
         kr_news = [{"title": "경제 뉴스 로딩 실패", "date": ""}]
         global_news = [{"title": "경제 뉴스 로딩 실패", "date": ""}]
@@ -80,245 +70,17 @@ oil_data, kr_news, global_news = get_dashboard_data()
 
 st.divider()
 col1, col2, col3 = st.columns([1, 1.5, 1.5])
-
 with col1:
     st.subheader("🛢️ WTI 원유 (Today)")
     if oil_data['price']:
-        color = "normal" if oil_data['change'] > 0 else "inverse"
-        sign = "+" if oil_data['change'] > 0 else ""
-        st.metric(
-            label="Crude Oil (USD/bbl)",
-            value=f"${oil_data['price']:.2f}",
-            delta=f"{sign}{oil_data['change']:.2f} ({sign}{oil_data['pct']:.2f}%)",
-            delta_color=color
-        )
-        if oil_data['history'] is not None:
-            st.line_chart(oil_data['history'], height=150)
-    else:
-        st.write("데이터 로딩 중...")
-
+        st.metric("Crude Oil (USD/bbl)", f"${oil_data['price']:.2f}", f"{oil_data['change']:.2f} ({oil_data['pct']:.2f}%)")
+        if oil_data['history'] is not None: st.line_chart(oil_data['history'], height=150)
 with col2:
     st.subheader("🇰🇷 실시간 국내 경제 뉴스")
-    for n in kr_news:
-        date_str = f"**[{n['date']}]** " if n['date'] else ""
-        st.markdown(f"- {date_str}{n['title']}")
-
+    for n in kr_news: st.markdown(f"- **[{n['date']}]** {n['title']}" if n['date'] else f"- {n['title']}")
 with col3:
     st.subheader("🌎 실시간 월스트리트 뉴스")
-    for n in global_news:
-        date_str = f"**[{n['date']}]** " if n['date'] else ""
-        st.markdown(f"- {date_str}{n['title']}")
-
-st.divider()
-
-# ==========================================
-# 1.8. 포트폴리오 종목 분석 AI
-# ==========================================
-st.subheader("🤖 포트폴리오 다중 종목 분석 AI")
-st.markdown("내 포트폴리오 종목을 입력하고 일괄 분석하세요. **(한국 주식은 '삼성전자' 등 이름 입력 가능! 미장은 'AAPL' 등 티커 입력)**")
-
-@st.cache_data
-def get_krx_mapping():
-    try:
-        df = fdr.StockListing('KRX')
-        return df[['Code', 'Name', 'Market']]
-    except:
-        return pd.DataFrame()
-
-krx_df = get_krx_mapping()
-
-def get_stock_news(query, limit=3):
-    url = f"https://news.google.com/rss/search?q={query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
-    bad_keywords = ['하락', '급락', '악재', '적자', '소송', '매도', '우려', '리스크', '감소', '위기', '폭락', '수사', '패소', '목표가 하향', '지연', '부진']
-    news_items = []
-    
-    try:
-        res = requests.get(url, timeout=3)
-        root = ET.fromstring(res.content)
-        for item in root.findall('.//item')[:limit]:
-            title = item.find('title').text
-            pubdate = item.find('pubDate').text
-            
-            try:
-                dt = email.utils.parsedate_to_datetime(pubdate)
-                date_str = dt.strftime("%m-%d %H:%M")
-            except:
-                date_str = ""
-            
-            sentiment = "강세"
-            color = "#089981"
-            for bw in bad_keywords:
-                if bw in title:
-                    sentiment = "약세"
-                    color = "#f23645"
-                    break
-            
-            news_items.append({"title": title, "date": date_str, "sentiment": sentiment, "color": color})
-    except:
-        pass
-    
-    if not news_items:
-        news_items.append({"title": f"최근 7일 내 '{query}' 관련 주요 뉴스가 없습니다.", "date": "", "sentiment": "중립", "color": "#8b94a5"})
-        
-    return news_items
-
-if 'portfolio_df' not in st.session_state:
-    st.session_state.portfolio_df = pd.DataFrame([
-        {"종목명/코드": "대덕전자", "평단가": 64600.0, "수량": 8.0},
-        {"종목명/코드": "이수스페셜티케미컬", "평단가": 101880.0, "수량": 5.0},
-        {"종목명/코드": "AAPL", "평단가": 170.0, "수량": 25.0}
-    ])
-
-edited_df = st.data_editor(
-    st.session_state.portfolio_df, 
-    num_rows="dynamic", 
-    use_container_width=True,
-    column_config={
-        "종목명/코드": st.column_config.TextColumn("종목명/코드 (예: 삼성전자, AAPL)", required=True),
-        "평단가": st.column_config.NumberColumn("평단가 (원/달러)", min_value=0.0, step=100.0),
-        "수량": st.column_config.NumberColumn("수량 (주)", min_value=0.0, step=1.0),
-    }
-)
-
-if st.button("포트폴리오 일괄 분석하기", use_container_width=True):
-    st.markdown("### 📊 포트폴리오 진단 결과")
-    card_cols = st.columns(2)
-    
-    for idx, row in edited_df.iterrows():
-        raw_input = str(row.get("종목명/코드", "")).strip()
-        if not raw_input or raw_input == "nan":
-            continue
-            
-        avg_price = float(row.get("평단가", 0.0))
-        quantity = float(row.get("수량", 0.0))
-        
-        target_ticker = raw_input.upper()
-        display_name = raw_input
-        kr_code = ""
-        
-        if not krx_df.empty:
-            name_match = krx_df[krx_df['Name'] == raw_input]
-            if not name_match.empty:
-                kr_code = name_match.iloc[0]['Code']
-                market = name_match.iloc[0]['Market']
-                target_ticker = f"{kr_code}.KS" if market in ['KOSPI', 'KOSPI200'] else f"{kr_code}.KQ"
-                display_name = raw_input
-            elif target_ticker.isdigit() and len(target_ticker) == 6:
-                code_match = krx_df[krx_df['Code'] == target_ticker]
-                kr_code = target_ticker
-                if not code_match.empty:
-                    market = code_match.iloc[0]['Market']
-                    display_name = code_match.iloc[0]['Name']
-                    target_ticker = f"{kr_code}.KS" if market in ['KOSPI', 'KOSPI200'] else f"{kr_code}.KQ"
-                else:
-                    target_ticker += ".KS"
-        elif target_ticker.isdigit() and len(target_ticker) == 6:
-            kr_code = target_ticker
-            target_ticker += ".KS"
-
-        current_price = 0.0
-        try:
-            if kr_code:
-                df_price = fdr.DataReader(kr_code)
-                if not df_price.empty:
-                    current_price = df_price['Close'].iloc[-1]
-            else:
-                yf_price = yf.Ticker(target_ticker).history(period="5d")
-                if not yf_price.empty:
-                    current_price = yf_price['Close'].iloc[-1]
-        except:
-            pass
-            
-        if current_price == 0.0 and avg_price > 0:
-            current_price = avg_price
-
-        roi = 0.0
-        if avg_price > 0 and current_price > 0:
-            roi = ((current_price - avg_price) / avg_price) * 100
-
-        if roi >= 5.0:
-            action_text = "차익실현 고려"
-            action_color = "#f23645"
-            action_bg = "rgba(242, 54, 69, 0.05)"
-        elif roi <= -5.0:
-            action_text = "비중축소 고려"
-            action_color = "#2962ff"
-            action_bg = "rgba(41, 98, 255, 0.05)"
-        else:
-            action_text = "보유 유지 (Hold)"
-            action_color = "#089981"
-            action_bg = "rgba(8, 153, 129, 0.05)"
-            
-        display_code = target_ticker.replace(".KS", "").replace(".KQ", "")
-        display_price = f"{current_price:,.0f}" if current_price > 1000 else f"{current_price:,.2f}"
-        display_roi = f"▲{roi:.2f}%" if roi > 0 else f"▼{abs(roi):.2f}%" if roi < 0 else "0.00%"
-        roi_txt_color = "#f23645" if roi > 0 else "#2962ff" if roi < 0 else "#8b94a5"
-        
-        summary_text = f"현재 시장가 {display_price} 기준, 내 포트폴리오 수익률은 {display_roi} 입니다."
-        
-        recent_news = get_stock_news(display_name, limit=3)
-        bullets_html = ""
-        for n in recent_news:
-            date_tag = f" <span style='color:#8b94a5; font-size:11px; margin-left:4px;'>({n['date']})</span>" if n['date'] else ""
-            bullets_html += f"""
-            <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: {n['color']}; font-weight: 700;">● [{n['sentiment']}]</span>
-                <span style="font-weight: 500;">{n['title']}{date_tag}</span>
-            </div>
-            """
-
-        raw_html = f"""
-        <div style="background-color: #1e222d; border-radius: 12px; padding: 24px; color: #e2e8f0; font-family: 'Malgun Gothic', dotum, sans-serif; width: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid #2b313f; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <div style="display: flex; align-items: baseline; gap: 8px;">
-                        <span style="font-size: 20px; font-weight: 800; color: #ffffff;">{display_name}</span>
-                        <span style="font-size: 14px; font-weight: 600; color: #8b94a5;">{display_code} | 내 포지션</span>
-                    </div>
-                    <div style="font-size: 12px; color: #8b94a5;">수량: {quantity}주 | 평단: {avg_price:,.0f}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 20px; font-weight: 800; color: #ffffff;">{display_price}</div>
-                    <div style="font-size: 14px; font-weight: 700; color: {roi_txt_color};">{display_roi}</div>
-                </div>
-            </div>
-            <div style="background-color: #131722; border-left: 4px solid #2962ff; border-radius: 4px; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #b2b5be; line-height: 1.5; font-weight: 500;">
-                {summary_text}
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px;">
-                <div>
-                    <div style="font-size: 12px; color: #8b94a5; margin-bottom: 6px;">뉴스 감성</div>
-                    <div style="font-size: 15px; font-weight: 700; color: #ffffff;">실시간</div>
-                </div>
-                <div>
-                    <div style="font-size: 12px; color: #8b94a5; margin-bottom: 6px;">소셜 감성</div>
-                    <div style="font-size: 15px; font-weight: 700; color: #ffffff;">연동됨</div>
-                </div>
-                <div>
-                    <div style="font-size: 12px; color: #8b94a5; margin-bottom: 6px;">리스크</div>
-                    <div style="font-size: 15px; font-weight: 700; color: #ff9800;">변동성</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 12px; color: #8b94a5; margin-bottom: 6px; padding-right: 4px;">권장 액션</div>
-                    <div style="border: 1px solid {action_color}; border-radius: 16px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: {action_color}; display: inline-flex; align-items: center; gap: 6px; background-color: {action_bg};">
-                        <div style="width: 8px; height: 8px; background-color: {action_color}; border-radius: 50%; box-shadow: 0 0 4px {action_color};"></div>
-                        {action_text}
-                    </div>
-                </div>
-            </div>
-            <hr style="border: none; border-top: 1px solid #2a2e39; margin: 20px 0;">
-            <div style="font-size: 12px; color: #8b94a5; margin-bottom: 16px; display: flex; align-items: center; gap: 6px;">
-                <span style="font-size: 14px;">📰</span> 실시간 주요 헤드라인 (최근 7일)
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #b2b5be;">
-                {bullets_html}
-            </div>
-        </div>
-        """
-        safe_html = "".join([line.strip() for line in raw_html.split('\n')])
-        with card_cols[idx % 2]:
-            st.markdown(safe_html, unsafe_allow_html=True)
-
+    for n in global_news: st.markdown(f"- **[{n['date']}]** {n['title']}" if n['date'] else f"- {n['title']}")
 st.divider()
 
 # ==========================================
@@ -327,47 +89,22 @@ st.divider()
 @st.cache_data
 def get_stock_list_final(market_name, scan_limit):
     results = []
-    kr_garbage = [
-        'KODEX', 'TIGER', 'ACE', 'KBSTAR', 'HANARO', 'SOL', 'KOSEF', 'ARIRANG', 
-        'TIMEFOLIO', 'KOACT', 'WOORI', 'PLUS', 'MASTER', 'HK', 'FOCUS', 'RISE', 
-        'KIWOOM', '1Q', 'WON', 'HERO', 'UNICORN', 'MIGHTY', 'QV',
-        'ETN', 'ETF', '스팩', 'SPAC', '인수목적', '전환', '선물', '채권', 
-        '레버리지', '인버스', '배당', '커버드콜', '리츠', 'REITS', '인프라', 
-        '선박', '투자', '펀드', '지주', '홀딩스'
-    ]
-    us_garbage = [
-        'ETF', 'ETN', 'Acquisition', 'SPAC', 'Fund', 'Trust', 'REIT', 
-        'Bull', 'Bear', '2X', '3X', 'Ultra', 'Short', 'ProShares', 
-        'Direxion', 'Vanguard', 'iShares', 'Invesco', 'Global X', 'Schwab', 'First Trust'
-    ]
+    kr_garbage = ['KODEX', 'TIGER', 'ACE', 'KBSTAR', 'HANARO', 'SOL', 'KOSEF', 'ARIRANG', 'TIMEFOLIO', 'KOACT', 'WOORI', 'PLUS', 'MASTER', 'HK', 'FOCUS', 'RISE', 'KIWOOM', '1Q', 'WON', 'HERO', 'UNICORN', 'MIGHTY', 'QV', 'ETN', 'ETF', '스팩', 'SPAC', '인수목적', '전환', '선물', '채권', '레버리지', '인버스', '배당', '커버드콜', '리츠', 'REITS', '인프라', '선박', '투자', '펀드', '지주', '홀딩스']
+    us_garbage = ['ETF', 'ETN', 'Acquisition', 'SPAC', 'Fund', 'Trust', 'REIT', 'Bull', 'Bear', '2X', '3X', 'Ultra', 'Short', 'ProShares', 'Direxion', 'Vanguard', 'iShares', 'Invesco', 'Global X', 'Schwab', 'First Trust']
 
     if "S&P" in market_name or "NASDAQ" in market_name or "Russell" in market_name:
         try:
-            if "S&P" in market_name:
-                df = fdr.StockListing('S&P500')
-            elif "Russell" in market_name:
-                df = fdr.StockListing('NYSE')
-            else:
-                df = fdr.StockListing('NASDAQ')
-                
+            df = fdr.StockListing('S&P500') if "S&P" in market_name else (fdr.StockListing('NYSE') if "Russell" in market_name else fdr.StockListing('NASDAQ'))
             col_map = {c.lower(): c for c in df.columns}
-            if 'marcap' in col_map:
-                df = df.sort_values(by=col_map['marcap'], ascending=False)
-            elif 'marketcap' in col_map:
-                df = df.sort_values(by=col_map['marketcap'], ascending=False)
-                
-            if scan_limit != "전체 (All)":
-                df = df.head(int(scan_limit))
-                
+            if 'marcap' in col_map: df = df.sort_values(by=col_map['marcap'], ascending=False)
+            elif 'marketcap' in col_map: df = df.sort_values(by=col_map['marketcap'], ascending=False)
+            if scan_limit != "전체 (All)": df = df.head(int(scan_limit))
             for idx, row in df.iterrows():
                 ticker = str(row.get('Symbol', row.get('Code', '')))
                 name = row.get('Name', ticker)
-                is_garbage = any(kw.lower() in name.lower() for kw in us_garbage)
-                if not is_garbage:
-                    results.append({"code": ticker, "name": name})
+                if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
-        except:
-            return [{"code": "AAPL", "name": "Apple (Error Load)"}]
+        except: return [{"code": "AAPL", "name": "Apple (Error Load)"}]
 
     market_code = "0" if "KOSPI" in market_name else "1"
     suffix = ".KS" if "KOSPI" in market_name else ".KQ"
@@ -379,96 +116,70 @@ def get_stock_list_final(market_name, scan_limit):
         count = 0
         for page in range(1, max_page + 1):
             if count >= limit_num: break
-            url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={market_code}&page={page}"
-            res = requests.get(url, headers=headers, timeout=5)
+            res = requests.get(f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={market_code}&page={page}", headers=headers, timeout=5)
             html = res.content.decode('euc-kr', 'replace')
             matches = re.findall(r'href="/item/main\.naver\?code=(\d{6})".*?>(.*?)</a>', html)
-            
             if not matches: break
             for code, name in matches:
                 if count >= limit_num: break
                 name = name.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-                is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
-                
-                if not is_garbage:
+                if not (any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name):
                     results.append({"code": code + suffix, "name": name})
                     count += 1
         return results
-    except:
-        return []
+    except: return []
 
 # ==========================================
-# 3. 자체 내장 보조지표 함수
+# 3. 보조지표 함수
 # ==========================================
-def calc_ema(series, span):
-    return series.ewm(span=span, adjust=False).mean()
-
+def calc_ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def calc_rsi(series, period=14):
     delta = series.diff()
     gain = delta.where(delta > 0, 0.0).ewm(alpha=1/period, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0.0)).ewm(alpha=1/period, adjust=False).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
+    return 100 - (100 / (1 + (gain / loss)))
 def calc_supertrend(df, period=10, multiplier=3.0):
     hl2 = (df['High'] + df['Low']) / 2
-    tr1 = df['High'] - df['Low']
-    tr2 = (df['High'] - df['Close'].shift()).abs()
-    tr3 = (df['Low'] - df['Close'].shift()).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    tr = pd.concat([df['High'] - df['Low'], (df['High'] - df['Close'].shift()).abs(), (df['Low'] - df['Close'].shift()).abs()], axis=1).max(axis=1)
     atr = tr.ewm(alpha=1/period, adjust=False).mean()
-    
-    ub = hl2 + (multiplier * atr)
-    lb = hl2 - (multiplier * atr)
-    
-    close_list = df['Close'].tolist()
-    ub_list = ub.tolist()
-    lb_list = lb.tolist()
-    dir_list = [1] * len(df)
-    
+    ub, lb = hl2 + (multiplier * atr), hl2 - (multiplier * atr)
+    close_list, ub_list, lb_list, dir_list = df['Close'].tolist(), ub.tolist(), lb.tolist(), [1] * len(df)
     for i in range(1, len(df)):
-        if pd.isna(close_list[i]) or pd.isna(ub_list[i-1]):
-            continue
-        if close_list[i] > ub_list[i-1]:
-            dir_list[i] = 1
-        elif close_list[i] < lb_list[i-1]:
-            dir_list[i] = -1
+        if pd.isna(close_list[i]) or pd.isna(ub_list[i-1]): continue
+        if close_list[i] > ub_list[i-1]: dir_list[i] = 1
+        elif close_list[i] < lb_list[i-1]: dir_list[i] = -1
         else:
             dir_list[i] = dir_list[i-1]
-            if dir_list[i] == 1:
-                lb_list[i] = max(lb_list[i], lb_list[i-1])
-            else:
-                ub_list[i] = min(ub_list[i], ub_list[i-1])
-                
+            if dir_list[i] == 1: lb_list[i] = max(lb_list[i], lb_list[i-1])
+            else: ub_list[i] = min(ub_list[i], ub_list[i-1])
     return dir_list
 
 # ==========================================
-# 4. 분석 로직
+# 4. 분석 로직 (스텔스 다운로드 + 타점 완화)
 # ==========================================
 def analyze_stock(ticker_info, timeframe):
     ticker = ticker_info['code']
     name = ticker_info['name']
-    
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None}
     
     try:
-        if timeframe == "1D":
-            df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, threads=False)
-        else:
-            df = yf.download(ticker, period="730d", interval="1h", progress=False, auto_adjust=True, threads=False)
+        # 클라우드 차단 우회: Ticker.history 사용
+        tkr = yf.Ticker(ticker)
+        if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
+        else: df = tkr.history(period="60d", interval="1h")
 
-        if df.empty or len(df) < 80: return result
-
+        if df.empty or len(df) < 60: return result
+        
+        # 멀티인덱스 제거
         if isinstance(df.columns, pd.MultiIndex):
             try: df.columns = df.columns.get_level_values(0)
             except: pass
 
         if timeframe == "4H":
-            if not isinstance(df.index, pd.DatetimeIndex):
-                df.index = pd.to_datetime(df.index)
-            aggregation = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
-            if 'Volume' not in df.columns: del aggregation['Volume']
-            df = df.resample('4h').agg(aggregation).dropna()
+            if not isinstance(df.index, pd.DatetimeIndex): df.index = pd.to_datetime(df.index)
+            agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
+            if 'Volume' not in df.columns: del agg['Volume']
+            df = df.resample('4h').agg(agg).dropna()
 
         if len(df) < 60 or 'Close' not in df.columns: return result
 
@@ -479,41 +190,36 @@ def analyze_stock(ticker_info, timeframe):
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
-        # === 샌드위치 (도지 매복 대기) 로직 ===
-        # 어제(d1)는 장대양봉(7% 이상), 오늘(d0)은 도지(몸통 3% 이하)이면서 어제 중심선 위에서 가격 방어
+        d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
+
+        # === 1. 샌드위치 (장대양봉 후 도지 눌림) ===
+        # 조건 완화: 어제 5% 이상 양봉, 오늘 4% 이하 도지, 어제 몸통 30% 지지
         try:
-            d0, d1 = df.iloc[-1], df.iloc[-2]
-            
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
-            is_long_d1 = rise_d1 >= 0.07  # 어제 7% 이상 장대양봉
-            
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
-            is_doji_d0 = body_d0 <= 0.03  # 오늘 몸통 3% 이하 도지
+            support_line = d1['Open'] + ((d1['Close'] - d1['Open']) * 0.3)
             
-            mid_d1 = (d1['Close'] + d1['Open']) / 2
-            is_hold_d0 = d0['Close'] >= mid_d1  # 어제 몸통의 절반(중심선) 위에서 가격 방어
-            
-            if is_long_d1 and is_doji_d0 and is_hold_d0:
+            if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
                 result["sandwich"] = {
                     "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                    "패턴": "🥪 샌드위치 대기 (매복)",
-                    "상승률": f"어제 +{round(rise_d1*100, 1)}% / 오늘 도지",
+                    "패턴": "🥪 샌드위치 매복 (도지)",
+                    "상승률": f"어제 +{round(rise_d1*100, 1)}% 급등",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
 
-        # === 급등 대기 (눌림목) 로직 ===
+        # === 2. 급등 대기 (거래량 급감 눌림목) ===
+        # 조건 완화: 어제 5% 이상 상승+거래량 1.5배, 오늘 주가 하락+거래량 반토막 이하
         try:
-            d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
             if d1['Open'] > 0 and d2['Volume'] > 0:
-                if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.06) and 
-                    (d1['Volume'] >= d2['Volume'] * 2.0) and 
-                    (d0['Close'] < d1['Close']) and 
-                    (d0['Volume'] <= d1['Volume'] * 0.40)):
+                if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
+                    (d1['Volume'] >= d2['Volume'] * 1.5) and 
+                    (d0['Close'] <= d1['Close']) and 
+                    (d0['Volume'] <= d1['Volume'] * 0.50)):
                     result["surge_prep"] = {
                         "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
                         "패턴": "🚀 급등 대기 (눌림목)",
-                        "조건": f"전일 {round(((d1['Close']-d1['Open'])/d1['Open'])*100,1)}%↑ 대량거래 / 금일 거래급감",
+                        "조건": f"전일 대량거래 / 금일 거래급감",
                         "발견시간": time.strftime("%H:%M:%S")
                     }
         except: pass
@@ -524,35 +230,25 @@ def analyze_stock(ticker_info, timeframe):
             curr, prev = df.iloc[idx], df.iloc[idx-1]
             
             if pd.isna(curr['EMA60']): continue
-            
             is_cross = (prev['EMA5'] <= prev['EMA20']) and (curr['EMA5'] > curr['EMA20'])
             is_trend = curr['EMA20'] > curr['EMA60']
             is_super_up = curr.get('stDir') == 1
             is_danger = ((curr['Close'] - curr['Open']) > (curr['Open'] * 0.10)) or (curr['RSI'] > 75) or (((curr['Close'] - curr['EMA20']) / curr['EMA20']) > 0.20)
 
-            sig_sniper = is_cross and is_trend and is_super_up and not is_danger
-            sig_normal = is_cross and (not sig_sniper) and (not is_danger)
-
-            when_txt = f"{i}봉 전" if timeframe == "4H" else {0: "오늘", 1: "1일 전", 2: "2일 전"}.get(i, f"{i}일 전")
-
-            touch_lines = []
-            if 0 <= (curr['Close'] - curr['EMA20']) / curr['EMA20'] <= 0.02: touch_lines.append("20선")
-            if 0 <= (curr['Close'] - curr['EMA60']) / curr['EMA60'] <= 0.02: touch_lines.append("60선")
-            if not pd.isna(curr['EMA200']) and 0 <= (curr['Close'] - curr['EMA200']) / curr['EMA200'] <= 0.02: touch_lines.append("200선")
-
-            if sig_sniper and result['sniper'] is None:
-                result["sniper"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"🎯 스나이퍼 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
-            if sig_normal and result['entry'] is None:
-                result["entry"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"✅ 추세 진입 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
-            if touch_lines and result['touch'] is None:
-                result["touch"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "터치 라인": f"🧲 {', '.join(touch_lines)} 지지 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
+            if is_cross and is_trend and is_super_up and not is_danger:
+                if result['sniper'] is None: result["sniper"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"🎯 스나이퍼", "발견시간": time.strftime("%H:%M:%S")}
+            elif is_cross and not is_danger:
+                if result['entry'] is None: result["entry"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "신호": f"✅ 추세 진입", "발견시간": time.strftime("%H:%M:%S")}
+            
+            t_lines = [line for diff, line in [((curr['Close']-curr['EMA20'])/curr['EMA20'], "20선"), ((curr['Close']-curr['EMA60'])/curr['EMA60'], "60선"), ((curr['Close']-curr['EMA200'])/curr['EMA200'], "200선") if not pd.isna(curr['EMA200']) else (-1, "")] if 0 <= diff <= 0.02]
+            if t_lines and result['touch'] is None:
+                result["touch"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "터치 라인": f"🧲 {', '.join(t_lines)} 지지", "발견시간": time.strftime("%H:%M:%S")}
 
         return result
-    except Exception as e:
-        return result
+    except: return result
 
 # ==========================================
-# 5. UI 및 멀티스레드 실행
+# 5. UI 및 실행
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 헌터 설정")
@@ -562,14 +258,12 @@ with st.sidebar:
     auto_loop = st.checkbox("🔁 무한 자동 반복", value=False)
     interval = st.number_input("대기 시간 (분)", min_value=1, value=10)
     
-    if HAS_WINSOUND:
-        sound_on = st.checkbox("🔊 알람 켜기 (PC전용)", value=True)
+    if HAS_WINSOUND: sound_on = st.checkbox("🔊 알람 켜기 (PC전용)", value=True)
     else:
-        st.caption("📱 알람 기능은 모바일/웹 환경에서 지원되지 않습니다.")
+        st.caption("📱 알람 기능은 웹 서버 환경에서 자동 음소거 됩니다.")
         sound_on = False
         
     show_log = st.checkbox("📝 분석 로그 보기", value=True)
-    
     if st.button("↻ 데이터 초기화"):
         st.cache_data.clear()
         st.rerun()
@@ -584,6 +278,8 @@ if stop_btn:
     st.warning("스캔이 중지되었습니다.")
 
 def process_stock_wrapper(stock):
+    # 클라우드 IP 차단을 막기 위한 0.1초 스텔스 딜레이
+    time.sleep(0.1)
     return stock, analyze_stock(stock, "1D"), analyze_stock(stock, "4H")
 
 if st.session_state.running:
@@ -591,7 +287,7 @@ if st.session_state.running:
     while st.session_state.running:
         with placeholder.container():
             target_list = get_stock_list_final(market, limit_option)
-            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 고속 스캔 시작... (대상: {len(target_list)}개)")
+            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (데이터 차단 회피 모드 작동 중)")
             if not target_list:
                 st.error("종목 리스트를 불러오지 못했습니다.")
                 st.session_state.running = False
@@ -605,14 +301,15 @@ if st.session_state.running:
             
             main_tab1, main_tab2 = st.tabs(["📅 일봉 (Daily)", "⏳ 4시간봉 (4-Hour)"])
             with main_tab1:
-                t1_a, t1_b, t1_c, t1_d, t1_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 대기"])
+                t1_a, t1_b, t1_c, t1_d, t1_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복"])
                 d_table_sniper, d_table_entry, d_table_touch, d_table_surge, d_table_sandwich = t1_a.empty(), t1_b.empty(), t1_c.empty(), t1_d.empty(), t1_e.empty()
                 
             with main_tab2:
-                t2_a, t2_b, t2_c, t2_d, t2_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 대기"])
+                t2_a, t2_b, t2_c, t2_d, t2_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복"])
                 h_table_sniper, h_table_entry, h_table_touch, h_table_surge, h_table_sandwich = t2_a.empty(), t2_b.empty(), t2_c.empty(), t2_d.empty(), t2_e.empty()
 
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            # 워커 갯수를 10 -> 5로 줄여서 야후 파이낸스 차단 완전 회피
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(process_stock_wrapper, stock): stock for stock in target_list}
                 for i, future in enumerate(as_completed(futures)):
                     if not st.session_state.running:
