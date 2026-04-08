@@ -20,8 +20,8 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="LazyDog TV Sync Hunter v14 (네이버 차단 회피)", layout="wide")
-st.title(" 🎯 LazyDog: Pine Script Sync Hunter v14 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v14 (네이버 차단 회피)", layout="wide")
+st.title(" 🎯 Stock Hunter: Pine Script Sync Hunter v14 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
 **업데이트:** 클라우드 서버(해외 IP) 이용 시 네이버 금융에서 종목 목록을 차단하는 에러를 영구적으로 해결했습니다. (FDR 공식 연동)
