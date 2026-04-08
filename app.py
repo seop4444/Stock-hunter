@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="LazyDog TV Sync Hunter v13 (스텔스 매복 패치)", layout="wide")
-st.title(" 🎯 LazyDog: Pine Script Sync Hunter v13 (클라우드 최적화)")
+st.set_page_config(page_title="LazyDog TV Sync Hunter v14 (네이버 차단 회피)", layout="wide")
+st.title(" 🎯 LazyDog: Pine Script Sync Hunter v14 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 야후 파이낸스 서버 차단(IP Block)을 우회하는 스텔스 모드를 적용하고, PC에서 잘 잡히던 **[급등 후 도지 눌림목]** 타점을 완벽 복원했습니다.
+**업데이트:** 클라우드 서버(해외 IP) 이용 시 네이버 금융에서 종목 목록을 차단하는 에러를 영구적으로 해결했습니다. (FDR 공식 연동)
 """)
 
 # ==========================================
@@ -84,7 +84,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집
+# 2. 데이터 수집 (네이버 크롤링 삭제 & FDR 완전 대체)
 # ==========================================
 @st.cache_data
 def get_stock_list_final(market_name, scan_limit):
@@ -92,8 +92,8 @@ def get_stock_list_final(market_name, scan_limit):
     kr_garbage = ['KODEX', 'TIGER', 'ACE', 'KBSTAR', 'HANARO', 'SOL', 'KOSEF', 'ARIRANG', 'TIMEFOLIO', 'KOACT', 'WOORI', 'PLUS', 'MASTER', 'HK', 'FOCUS', 'RISE', 'KIWOOM', '1Q', 'WON', 'HERO', 'UNICORN', 'MIGHTY', 'QV', 'ETN', 'ETF', '스팩', 'SPAC', '인수목적', '전환', '선물', '채권', '레버리지', '인버스', '배당', '커버드콜', '리츠', 'REITS', '인프라', '선박', '투자', '펀드', '지주', '홀딩스']
     us_garbage = ['ETF', 'ETN', 'Acquisition', 'SPAC', 'Fund', 'Trust', 'REIT', 'Bull', 'Bear', '2X', '3X', 'Ultra', 'Short', 'ProShares', 'Direxion', 'Vanguard', 'iShares', 'Invesco', 'Global X', 'Schwab', 'First Trust']
 
-    if "S&P" in market_name or "NASDAQ" in market_name or "Russell" in market_name:
-        try:
+    try:
+        if "S&P" in market_name or "NASDAQ" in market_name or "Russell" in market_name:
             df = fdr.StockListing('S&P500') if "S&P" in market_name else (fdr.StockListing('NYSE') if "Russell" in market_name else fdr.StockListing('NASDAQ'))
             col_map = {c.lower(): c for c in df.columns}
             if 'marcap' in col_map: df = df.sort_values(by=col_map['marcap'], ascending=False)
@@ -104,30 +104,24 @@ def get_stock_list_final(market_name, scan_limit):
                 name = row.get('Name', ticker)
                 if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
-        except: return [{"code": "AAPL", "name": "Apple (Error Load)"}]
-
-    market_code = "0" if "KOSPI" in market_name else "1"
-    suffix = ".KS" if "KOSPI" in market_name else ".KQ"
-    max_page = 35 if scan_limit == "전체 (All)" else (int(scan_limit) // 50) + 2
-    limit_num = 100000 if scan_limit == "전체 (All)" else int(scan_limit)
-
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        count = 0
-        for page in range(1, max_page + 1):
-            if count >= limit_num: break
-            res = requests.get(f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={market_code}&page={page}", headers=headers, timeout=5)
-            html = res.content.decode('euc-kr', 'replace')
-            matches = re.findall(r'href="/item/main\.naver\?code=(\d{6})".*?>(.*?)</a>', html)
-            if not matches: break
-            for code, name in matches:
-                if count >= limit_num: break
-                name = name.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-                if not (any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name):
-                    results.append({"code": code + suffix, "name": name})
-                    count += 1
-        return results
-    except: return []
+        else:
+            # 한국 시장 (KOSPI / KOSDAQ) - 해외 IP 차단 방지용 FDR 직접 호출
+            df = fdr.StockListing('KOSPI') if "KOSPI" in market_name else fdr.StockListing('KOSDAQ')
+            suffix = ".KS" if "KOSPI" in market_name else ".KQ"
+            
+            col_map = {c.lower(): c for c in df.columns}
+            if 'marcap' in col_map: df = df.sort_values(by=col_map['marcap'], ascending=False)
+            elif 'marketcap' in col_map: df = df.sort_values(by=col_map['marketcap'], ascending=False)
+            if scan_limit != "전체 (All)": df = df.head(int(scan_limit))
+            
+            for idx, row in df.iterrows():
+                ticker = str(row.get('Code', ''))
+                name = str(row.get('Name', ''))
+                is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
+                if not is_garbage: results.append({"code": ticker + suffix, "name": name})
+            return results
+    except:
+        return []
 
 # ==========================================
 # 3. 보조지표 함수
@@ -163,14 +157,12 @@ def analyze_stock(ticker_info, timeframe):
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None}
     
     try:
-        # 클라우드 차단 우회: Ticker.history 사용
         tkr = yf.Ticker(ticker)
         if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
         else: df = tkr.history(period="60d", interval="1h")
 
         if df.empty or len(df) < 60: return result
         
-        # 멀티인덱스 제거
         if isinstance(df.columns, pd.MultiIndex):
             try: df.columns = df.columns.get_level_values(0)
             except: pass
@@ -193,7 +185,6 @@ def analyze_stock(ticker_info, timeframe):
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
 
         # === 1. 샌드위치 (장대양봉 후 도지 눌림) ===
-        # 조건 완화: 어제 5% 이상 양봉, 오늘 4% 이하 도지, 어제 몸통 30% 지지
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
@@ -209,7 +200,6 @@ def analyze_stock(ticker_info, timeframe):
         except: pass
 
         # === 2. 급등 대기 (거래량 급감 눌림목) ===
-        # 조건 완화: 어제 5% 이상 상승+거래량 1.5배, 오늘 주가 하락+거래량 반토막 이하
         try:
             if d1['Open'] > 0 and d2['Volume'] > 0:
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
@@ -248,7 +238,23 @@ def analyze_stock(ticker_info, timeframe):
     except: return result
 
 # ==========================================
-# 5. UI 및 실행
+# 5. 포트폴리오 (단순화 - yfinance로 한국주식 조회)
+# ==========================================
+if 'portfolio_df' not in st.session_state:
+    st.session_state.portfolio_df = pd.DataFrame([
+        {"종목명/코드": "005930.KS", "평단가": 74000.0, "수량": 10.0},
+        {"종목명/코드": "AAPL", "평단가": 170.0, "수량": 25.0}
+    ])
+
+@st.cache_data
+def get_krx_mapping_safe():
+    try: return fdr.StockListing('KRX')[['Code', 'Name', 'Market']]
+    except: return pd.DataFrame()
+
+krx_df_safe = get_krx_mapping_safe()
+
+# ==========================================
+# 6. UI 및 실행
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 헌터 설정")
@@ -278,7 +284,6 @@ if stop_btn:
     st.warning("스캔이 중지되었습니다.")
 
 def process_stock_wrapper(stock):
-    # 클라우드 IP 차단을 막기 위한 0.1초 스텔스 딜레이
     time.sleep(0.1)
     return stock, analyze_stock(stock, "1D"), analyze_stock(stock, "4H")
 
@@ -287,7 +292,7 @@ if st.session_state.running:
     while st.session_state.running:
         with placeholder.container():
             target_list = get_stock_list_final(market, limit_option)
-            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (데이터 차단 회피 모드 작동 중)")
+            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (데이터 우회 회피 모드 작동 중)")
             if not target_list:
                 st.error("종목 리스트를 불러오지 못했습니다.")
                 st.session_state.running = False
@@ -308,7 +313,6 @@ if st.session_state.running:
                 t2_a, t2_b, t2_c, t2_d, t2_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복"])
                 h_table_sniper, h_table_entry, h_table_touch, h_table_surge, h_table_sandwich = t2_a.empty(), t2_b.empty(), t2_c.empty(), t2_d.empty(), t2_e.empty()
 
-            # 워커 갯수를 10 -> 5로 줄여서 야후 파이낸스 차단 완전 회피
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(process_stock_wrapper, stock): stock for stock in target_list}
                 for i, future in enumerate(as_completed(futures)):
