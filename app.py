@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v16 (발견 시점 복구)", layout="wide")
-st.title(" 🎯 Stock Hunter v16 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v17 (디테일 지표 추가)", layout="wide")
+st.title(" 🎯 Stock Hunter v17 (상세 지표판)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 스나이퍼 및 추세 진입 시그널의 '발견 시점(오늘/1일 전 등)' 표시가 복구되었습니다. 팝업 알림 제거됨.
+**업데이트:** 급등 대기 / 샌드위치 탭에 전일 대비 가격, 등락률(%), 거래량 상세 비교 지표가 추가되었습니다.
 """)
 
 # ==========================================
@@ -189,11 +189,16 @@ def analyze_stock(ticker_info, timeframe):
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
             support_line = d1['Open'] + ((d1['Close'] - d1['Open']) * 0.3)
             
+            pct_d1 = (d1['Close'] - d2['Close']) / d2['Close'] * 100
+            pct_d0 = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+            
             if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
                 result["sandwich"] = {
-                    "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                    "패턴": "🥪 샌드위 매복 (도지)",
-                    "상승률": f"어제 +{round(rise_d1*100, 1)}% 급등",
+                    "종목명": name, "티커": ticker, 
+                    "현재가(오늘)": f"{int(d0['Close']):,}",
+                    "종가(어제)": f"{int(d1['Close']):,}",
+                    "등락률": f"어제 {pct_d1:+.1f}% / 오늘 {pct_d0:+.1f}%",
+                    "거래량": f"어제 {int(d1['Volume']):,} / 오늘 {int(d0['Volume']):,}",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
@@ -201,14 +206,19 @@ def analyze_stock(ticker_info, timeframe):
         # === 2. 급등 대기 (거래량 급감 눌림목) ===
         try:
             if d1['Open'] > 0 and d2['Volume'] > 0:
+                pct_d1 = (d1['Close'] - d2['Close']) / d2['Close'] * 100
+                pct_d0 = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
                     (d1['Volume'] >= d2['Volume'] * 1.5) and 
                     (d0['Close'] <= d1['Close']) and 
                     (d0['Volume'] <= d1['Volume'] * 0.50)):
                     result["surge_prep"] = {
-                        "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                        "패턴": "🚀 급등 대기 (눌림목)",
-                        "조건": f"전일 대량거래 / 금일 거래급감",
+                        "종목명": name, "티커": ticker, 
+                        "현재가(오늘)": f"{int(d0['Close']):,}",
+                        "종가(어제)": f"{int(d1['Close']):,}",
+                        "등락률": f"어제 {pct_d1:+.1f}% / 오늘 {pct_d0:+.1f}%",
+                        "거래량": f"어제 {int(d1['Volume']):,} / 오늘 {int(d0['Volume']):,}",
                         "발견시간": time.strftime("%H:%M:%S")
                     }
         except: pass
@@ -224,7 +234,6 @@ def analyze_stock(ticker_info, timeframe):
             is_super_up = curr.get('stDir') == 1
             is_danger = ((curr['Close'] - curr['Open']) > (curr['Open'] * 0.10)) or (curr['RSI'] > 75) or (((curr['Close'] - curr['EMA20']) / curr['EMA20']) > 0.20)
 
-            # 발견 시점 문자열 복구 완료
             when_txt = f"{i}봉 전" if timeframe == "4H" else {0: "오늘", 1: "1일 전", 2: "2일 전"}.get(i, f"{i}일 전")
 
             if is_cross and is_trend and is_super_up and not is_danger:
@@ -348,7 +357,6 @@ if st.session_state.running:
                             if sound_on and HAS_WINSOUND: 
                                 try: winsound.Beep(1000, 150)
                                 except: pass
-                            # 알림 팝업 완전 제거
                             
                         if d_sniper: d_table_sniper.dataframe(pd.DataFrame(d_sniper), use_container_width=True)
                         if d_entry: d_table_entry.dataframe(pd.DataFrame(d_entry), use_container_width=True)
