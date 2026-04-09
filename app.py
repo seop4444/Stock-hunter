@@ -20,11 +20,12 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v17 (디테일 지표 추가)", layout="wide")
-st.title(" 🎯 Stock Hunter v17 (상세 지표판)")
+st.set_page_config(page_title="Stock Hunter v18 (N자형 & 거래량 최적화)", layout="wide")
+st.title(" 🎯 Stock Hunter v18 (상세 지표판 & N자형 패턴)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 급등 대기 / 샌드위치 탭에 전일 대비 가격, 등락률(%), 거래량 상세 비교 지표가 추가되었습니다.
+**업데이트:** 1. 거래량이 읽기 쉽게 '만', '억' 단위로 표시되며, 전일 대비 증감률(%)이 추가되었습니다.
+2. 장대양봉 이후 연속 음봉으로 가격을 누르는 **[📉 N자형 눌림]** 패턴 스캔이 추가되었습니다.
 """)
 
 # ==========================================
@@ -84,7 +85,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집 (네이버 크롤링 삭제 & FDR 완전 대체)
+# 2. 데이터 수집
 # ==========================================
 @st.cache_data
 def get_stock_list_final(market_name, scan_limit):
@@ -107,12 +108,10 @@ def get_stock_list_final(market_name, scan_limit):
         else:
             df = fdr.StockListing('KOSPI') if "KOSPI" in market_name else fdr.StockListing('KOSDAQ')
             suffix = ".KS" if "KOSPI" in market_name else ".KQ"
-            
             col_map = {c.lower(): c for c in df.columns}
             if 'marcap' in col_map: df = df.sort_values(by=col_map['marcap'], ascending=False)
             elif 'marketcap' in col_map: df = df.sort_values(by=col_map['marketcap'], ascending=False)
             if scan_limit != "전체 (All)": df = df.head(int(scan_limit))
-            
             for idx, row in df.iterrows():
                 ticker = str(row.get('Code', ''))
                 name = str(row.get('Name', ''))
@@ -123,8 +122,14 @@ def get_stock_list_final(market_name, scan_limit):
         return []
 
 # ==========================================
-# 3. 보조지표 함수
+# 3. 유틸리티 및 보조지표 함수
 # ==========================================
+def format_vol(v):
+    """거래량을 읽기 쉬운 한글 단위(만, 억)로 변환"""
+    if v >= 100000000: return f"{v/100000000:.1f}억"
+    elif v >= 10000: return f"{v/10000:.0f}만"
+    return f"{int(v):,}"
+
 def calc_ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def calc_rsi(series, period=14):
     delta = series.diff()
@@ -153,7 +158,7 @@ def calc_supertrend(df, period=10, multiplier=3.0):
 def analyze_stock(ticker_info, timeframe):
     ticker = ticker_info['code']
     name = ticker_info['name']
-    result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None}
+    result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "n_shape": None}
     
     try:
         tkr = yf.Ticker(ticker)
@@ -183,14 +188,16 @@ def analyze_stock(ticker_info, timeframe):
 
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
 
+        # === 공통 퍼센트 및 거래량 계산 ===
+        vol_pct_today = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
+        pct_d1 = (d1['Close'] - d2['Close']) / d2['Close'] * 100 if d2['Close'] > 0 else 0
+        pct_d0 = (d0['Close'] - d1['Close']) / d1['Close'] * 100 if d1['Close'] > 0 else 0
+
         # === 1. 샌드위치 (장대양봉 후 도지 눌림) ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
             support_line = d1['Open'] + ((d1['Close'] - d1['Open']) * 0.3)
-            
-            pct_d1 = (d1['Close'] - d2['Close']) / d2['Close'] * 100
-            pct_d0 = (d0['Close'] - d1['Close']) / d1['Close'] * 100
             
             if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
                 result["sandwich"] = {
@@ -198,7 +205,7 @@ def analyze_stock(ticker_info, timeframe):
                     "현재가(오늘)": f"{int(d0['Close']):,}",
                     "종가(어제)": f"{int(d1['Close']):,}",
                     "등락률": f"어제 {pct_d1:+.1f}% / 오늘 {pct_d0:+.1f}%",
-                    "거래량": f"어제 {int(d1['Volume']):,} / 오늘 {int(d0['Volume']):,}",
+                    "거래량": f"어제 {format_vol(d1['Volume'])} / 오늘 {format_vol(d0['Volume'])} ({vol_pct_today:+.1f}%)",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
@@ -206,9 +213,6 @@ def analyze_stock(ticker_info, timeframe):
         # === 2. 급등 대기 (거래량 급감 눌림목) ===
         try:
             if d1['Open'] > 0 and d2['Volume'] > 0:
-                pct_d1 = (d1['Close'] - d2['Close']) / d2['Close'] * 100
-                pct_d0 = (d0['Close'] - d1['Close']) / d1['Close'] * 100
-                
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
                     (d1['Volume'] >= d2['Volume'] * 1.5) and 
                     (d0['Close'] <= d1['Close']) and 
@@ -218,9 +222,29 @@ def analyze_stock(ticker_info, timeframe):
                         "현재가(오늘)": f"{int(d0['Close']):,}",
                         "종가(어제)": f"{int(d1['Close']):,}",
                         "등락률": f"어제 {pct_d1:+.1f}% / 오늘 {pct_d0:+.1f}%",
-                        "거래량": f"어제 {int(d1['Volume']):,} / 오늘 {int(d0['Volume']):,}",
+                        "거래량": f"어제 {format_vol(d1['Volume'])} / 오늘 {format_vol(d0['Volume'])} ({vol_pct_today:+.1f}%)",
                         "발견시간": time.strftime("%H:%M:%S")
                     }
+        except: pass
+
+        # === 3. N자형 눌림 (장대양봉 후 연속 2음봉) ===
+        try:
+            rise_d2 = (d2['Close'] - d2['Open']) / d2['Open'] if d2['Open'] > 0 else 0
+            is_long_d2 = rise_d2 >= 0.05  # D-2일 5% 이상 양봉
+            is_bear_d1 = d1['Close'] < d1['Open']  # 어제 음봉
+            is_bear_d0 = d0['Close'] <= d0['Open'] # 오늘 음봉(또는 도지)
+            is_hold_support = d0['Close'] >= d2['Open'] # 양봉 시가 위에서 방어
+
+            if is_long_d2 and is_bear_d1 and is_bear_d0 and is_hold_support:
+                pct_d2 = (d2['Close'] - df.iloc[-4]['Close']) / df.iloc[-4]['Close'] * 100 if len(df) > 3 else rise_d2*100
+                result["n_shape"] = {
+                    "종목명": name, "티커": ticker, 
+                    "현재가(오늘)": f"{int(d0['Close']):,}",
+                    "패턴": "📉 N자형 눌림 (2연속 음봉)",
+                    "등락률": f"D-2 급등({pct_d2:+.1f}%) / 오늘 {pct_d0:+.1f}%",
+                    "거래량": f"어제 {format_vol(d1['Volume'])} / 오늘 {format_vol(d0['Volume'])} ({vol_pct_today:+.1f}%)",
+                    "발견시간": time.strftime("%H:%M:%S")
+                }
         except: pass
 
         for i in range(3):
@@ -247,22 +271,6 @@ def analyze_stock(ticker_info, timeframe):
 
         return result
     except: return result
-
-# ==========================================
-# 5. 포트폴리오
-# ==========================================
-if 'portfolio_df' not in st.session_state:
-    st.session_state.portfolio_df = pd.DataFrame([
-        {"종목명/코드": "005930.KS", "평단가": 74000.0, "수량": 10.0},
-        {"종목명/코드": "AAPL", "평단가": 170.0, "수량": 25.0}
-    ])
-
-@st.cache_data
-def get_krx_mapping_safe():
-    try: return fdr.StockListing('KRX')[['Code', 'Name', 'Market']]
-    except: return pd.DataFrame()
-
-krx_df_safe = get_krx_mapping_safe()
 
 # ==========================================
 # 6. UI 및 실행
@@ -309,20 +317,20 @@ if st.session_state.running:
                 st.session_state.running = False
                 break
                 
-            d_sniper, d_entry, d_touch, d_surge, d_sandwich = [], [], [], [], []
-            h_sniper, h_entry, h_touch, h_surge, h_sandwich = [], [], [], [], []
+            d_sniper, d_entry, d_touch, d_surge, d_sandwich, d_n_shape = [], [], [], [], [], []
+            h_sniper, h_entry, h_touch, h_surge, h_sandwich, h_n_shape = [], [], [], [], [], []
             
             bar, status_text, log_box = st.progress(0), st.empty(), st.empty()
             total, success_cnt = len(target_list), 0
             
             main_tab1, main_tab2 = st.tabs(["📅 일봉 (Daily)", "⏳ 4시간봉 (4-Hour)"])
             with main_tab1:
-                t1_a, t1_b, t1_c, t1_d, t1_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복"])
-                d_table_sniper, d_table_entry, d_table_touch, d_table_surge, d_table_sandwich = t1_a.empty(), t1_b.empty(), t1_c.empty(), t1_d.empty(), t1_e.empty()
+                t1_a, t1_b, t1_c, t1_d, t1_e, t1_f = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복", "📉 N자형 눌림"])
+                d_table_sniper, d_table_entry, d_table_touch, d_table_surge, d_table_sandwich, d_table_n_shape = t1_a.empty(), t1_b.empty(), t1_c.empty(), t1_d.empty(), t1_e.empty(), t1_f.empty()
                 
             with main_tab2:
-                t2_a, t2_b, t2_c, t2_d, t2_e = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복"])
-                h_table_sniper, h_table_entry, h_table_touch, h_table_surge, h_table_sandwich = t2_a.empty(), t2_b.empty(), t2_c.empty(), t2_d.empty(), t2_e.empty()
+                t2_a, t2_b, t2_c, t2_d, t2_e, t2_f = st.tabs(["🎯 스나이퍼", "✅ 추세 진입", "🧲 지지선 터치", "🚀 급등 대기", "🥪 샌드위치 매복", "📉 N자형 눌림"])
+                h_table_sniper, h_table_entry, h_table_touch, h_table_surge, h_table_sandwich, h_table_n_shape = t2_a.empty(), t2_b.empty(), t2_c.empty(), t2_d.empty(), t2_e.empty(), t2_f.empty()
 
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(process_stock_wrapper, stock): stock for stock in target_list}
@@ -345,12 +353,14 @@ if st.session_state.running:
                         if res_d['touch']: d_touch.append(res_d['touch']); found=True
                         if res_d['surge_prep']: d_surge.append(res_d['surge_prep']); found=True
                         if res_d['sandwich']: d_sandwich.append(res_d['sandwich']); found=True
+                        if res_d['n_shape']: d_n_shape.append(res_d['n_shape']); found=True
                         
                         if res_h['sniper']: h_sniper.append(res_h['sniper']); found=True
                         if res_h['entry']: h_entry.append(res_h['entry']); found=True
                         if res_h['touch']: h_touch.append(res_h['touch']); found=True
                         if res_h['surge_prep']: h_surge.append(res_h['surge_prep']); found=True
                         if res_h['sandwich']: h_sandwich.append(res_h['sandwich']); found=True
+                        if res_h['n_shape']: h_n_shape.append(res_h['n_shape']); found=True
                         
                         if found:
                             success_cnt += 1
@@ -363,12 +373,14 @@ if st.session_state.running:
                         if d_touch: d_table_touch.dataframe(pd.DataFrame(d_touch), use_container_width=True)
                         if d_surge: d_table_surge.dataframe(pd.DataFrame(d_surge), use_container_width=True)
                         if d_sandwich: d_table_sandwich.dataframe(pd.DataFrame(d_sandwich), use_container_width=True)
+                        if d_n_shape: d_table_n_shape.dataframe(pd.DataFrame(d_n_shape), use_container_width=True)
                         
                         if h_sniper: h_table_sniper.dataframe(pd.DataFrame(h_sniper), use_container_width=True)
                         if h_entry: h_table_entry.dataframe(pd.DataFrame(h_entry), use_container_width=True)
                         if h_touch: h_table_touch.dataframe(pd.DataFrame(h_touch), use_container_width=True)
                         if h_surge: h_table_surge.dataframe(pd.DataFrame(h_surge), use_container_width=True)
                         if h_sandwich: h_table_sandwich.dataframe(pd.DataFrame(h_sandwich), use_container_width=True)
+                        if h_n_shape: h_table_n_shape.dataframe(pd.DataFrame(h_n_shape), use_container_width=True)
                             
                     except Exception:
                         continue
@@ -377,7 +389,7 @@ if st.session_state.running:
             status_text.text("스캔 완료!")
             log_box.empty()
             
-            if not (d_sniper or d_entry or d_touch or d_surge or d_sandwich or h_sniper or h_entry or h_touch or h_surge or h_sandwich):
+            if not (d_sniper or d_entry or d_touch or d_surge or d_sandwich or d_n_shape or h_sniper or h_entry or h_touch or h_surge or h_sandwich or h_n_shape):
                 st.warning("조건에 맞는 종목을 찾지 못했습니다.")
                 
             if auto_loop:
