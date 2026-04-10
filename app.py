@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v21 (달력 기준 유령 퇴치)", layout="wide")
-st.title(" 🎯 Stock Hunter v21 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v22 (KRX 데이터 직결)", layout="wide")
+st.title(" 🎯 Stock Hunter v22 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 야후 서버의 금요일 거래량 누락 에러 시 멀쩡한 데이터가 삭제되는 현상을 고쳤습니다. 이제 '거래량'이 아닌 '토/일 요일' 기준으로만 가짜 주말 캔들을 삭제합니다.
+**업데이트:** 주말에 야후 파이낸스 서버가 한국 주식의 금요일 데이터를 날려버리는 치명적 버그를 해결하기 위해, 일봉(1D) 데이터 수집을 한국 공식 데이터(FDR)로 전면 교체했습니다. 이제 주말에도 무조건 '금요일' 종가로 정확히 계산됩니다.
 """)
 
 # ==========================================
@@ -156,27 +156,33 @@ def analyze_stock(ticker_info, timeframe):
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "review": None}
     
     try:
-        tkr = yf.Ticker(ticker)
-        if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
-        else: df = tkr.history(period="60d", interval="1h")
+        is_krx = (".KS" in ticker or ".KQ" in ticker)
+        
+        # 🚨 [핵심 버그 픽스] 야후 데이터 버리고 한국 공식 데이터(FDR) 직결
+        if timeframe == "1D" and is_krx:
+            code = ticker.replace('.KS', '').replace('.KQ', '')
+            try:
+                df = fdr.DataReader(code)
+                if df.empty or len(df) < 60: return result
+                df = df.tail(250)
+            except:
+                return result
+        else:
+            tkr = yf.Ticker(ticker)
+            if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
+            else: df = tkr.history(period="60d", interval="1h")
 
-        if df.empty or len(df) < 60: return result
-        
-        if isinstance(df.columns, pd.MultiIndex):
-            try: df.columns = df.columns.get_level_values(0)
-            except: pass
+            if df.empty or len(df) < 60: return result
+            
+            if isinstance(df.columns, pd.MultiIndex):
+                try: df.columns = df.columns.get_level_values(0)
+                except: pass
 
-        # ==============================================
-        # 🚨 [핵심 버그 픽스] 달력(요일) 기준 유령 퇴치
-        # ==============================================
-        # 시간 형식 맞추기
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        
-        # 월~금(0~4) 데이터만 남기고, 토/일(5, 6) 데이터는 무조건 삭제
-        df = df[df.index.weekday < 5]
-        
-        # 값이 비어있는 오류 행 삭제
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+            df = df[df.index.weekday < 5]
+
+        # 결측치(값이 비어있는 행) 제거
         df = df.dropna(subset=['Close', 'Open'])
 
         if len(df) < 60: return result
@@ -185,7 +191,6 @@ def analyze_stock(ticker_info, timeframe):
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
             if 'Volume' not in df.columns: del agg['Volume']
             df = df.resample('4h').agg(agg).dropna()
-            # 4시간봉도 혹시 모를 주말 찌꺼기 삭제
             df = df[df.index.weekday < 5]
 
         df['EMA5'] = calc_ema(df['Close'], 5)
@@ -195,6 +200,8 @@ def analyze_stock(ticker_info, timeframe):
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
+        # d0: 오늘(가장 최신 거래일, 현재 주말이면 '금요일')
+        # d1: 어제(금요일의 하루 전 '목요일')
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
         d3 = df.iloc[-4] if len(df) >= 4 else None
 
