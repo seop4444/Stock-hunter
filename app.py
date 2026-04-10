@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v17 (성과 검증 추적)", layout="wide")
-st.title(" 🎯 Stock Hunter v17 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v18 (빈 화면 안내 추가)", layout="wide")
+st.title(" 🎯 Stock Hunter v18 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 전일(1일 전) '급등 대기' 및 '샌드위치' 패턴이 출현했던 종목들의 오늘 성적(등락률, 거래량 변화)을 추적하는 기능이 추가되었습니다.
+**업데이트:** 전일(1일 전) '급등 대기' 및 '샌드위치' 패턴 성적표 탭 추가 / 종목이 없을 시 안내 문구가 뜨도록 UI가 개선되었습니다.
 """)
 
 # ==========================================
@@ -84,7 +84,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집 (네이버 크롤링 삭제 & FDR 완전 대체)
+# 2. 데이터 수집
 # ==========================================
 @st.cache_data
 def get_stock_list_final(market_name, scan_limit):
@@ -181,15 +181,13 @@ def analyze_stock(ticker_info, timeframe):
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
-        # 오늘(d0), 어제(d1), 그제(d2), 3일 전(d3)
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
         d3 = df.iloc[-4] if len(df) >= 4 else None
 
         # ==============================================
-        # [신규 기능] 📊 전일 타점 성적표 (성과 검증)
+        # 📊 전일 타점 성적표 (성과 검증)
         # ==============================================
         if d3 is not None:
-            # 1. 샌드위치 복기 (그제 급등 -> 어제 도지 -> 오늘 결과)
             try:
                 rise_d2 = (d2['Close'] - d2['Open']) / d2['Open']
                 body_d1 = abs(d1['Close'] - d1['Open']) / d1['Open']
@@ -207,7 +205,6 @@ def analyze_stock(ticker_info, timeframe):
                     }
             except: pass
 
-            # 2. 급등 대기 복기 (그제 급등 -> 어제 거래량 급감 -> 오늘 결과)
             if result["review"] is None:
                 try:
                     if d2['Open'] > 0 and d3['Volume'] > 0:
@@ -227,9 +224,8 @@ def analyze_stock(ticker_info, timeframe):
                 except: pass
 
         # ==============================================
-        # [기존 기능] 오늘(현재) 기준 사냥 로직
+        # 현재 기준 사냥 로직
         # ==============================================
-        # === 1. 샌드위치 ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
@@ -244,7 +240,6 @@ def analyze_stock(ticker_info, timeframe):
                 }
         except: pass
 
-        # === 2. 급등 대기 ===
         try:
             if d1['Open'] > 0 and d2['Volume'] > 0:
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
@@ -400,9 +395,24 @@ if st.session_state.running:
             bar.progress(100)
             status_text.text("스캔 완료!")
             log_box.empty()
+
+            # --- [수정된 부분] 종목이 없을 때 빈 화면 대신 안내 문구 출력 ---
+            if not d_sniper: d_table_sniper.caption("조건에 맞는 종목이 없습니다.")
+            if not d_entry: d_table_entry.caption("조건에 맞는 종목이 없습니다.")
+            if not d_touch: d_table_touch.caption("조건에 맞는 종목이 없습니다.")
+            if not d_surge: d_table_surge.caption("조건에 맞는 종목이 없습니다.")
+            if not d_sandwich: d_table_sandwich.caption("조건에 맞는 종목이 없습니다.")
+            if not d_review: d_table_review.info("📊 전일(목요일) 포착된 종목이 없거나, 주말이라 아직 다음 거래일(월요일) 결과가 나오지 않았습니다.")
+
+            if not h_sniper: h_table_sniper.caption("조건에 맞는 종목이 없습니다.")
+            if not h_entry: h_table_entry.caption("조건에 맞는 종목이 없습니다.")
+            if not h_touch: h_table_touch.caption("조건에 맞는 종목이 없습니다.")
+            if not h_surge: h_table_surge.caption("조건에 맞는 종목이 없습니다.")
+            if not h_sandwich: h_table_sandwich.caption("조건에 맞는 종목이 없습니다.")
+            if not h_review: h_table_review.info("📊 이전 캔들에서 포착된 종목이 없거나, 아직 다음 캔들 결과가 생성되지 않았습니다.")
             
             if not (d_sniper or d_entry or d_touch or d_surge or d_sandwich or d_review or h_sniper or h_entry or h_touch or h_surge or h_sandwich or h_review):
-                st.warning("조건에 맞는 종목을 찾지 못했습니다.")
+                st.warning("조건에 맞는 종목을 아예 찾지 못했습니다.")
                 
             if auto_loop:
                 for s in range(interval * 60, 0, -1):
