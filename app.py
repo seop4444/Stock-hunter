@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v20 (유령 캔들 퇴치)", layout="wide")
-st.title(" 🎯 Stock Hunter v20 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v21 (달력 기준 유령 퇴치)", layout="wide")
+st.title(" 🎯 Stock Hunter v21 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 주말 새벽 야후 파이낸스 서버 오류로 인해 코스피(.KS) 종목에 '거래량 0'짜리 가짜 데이터(유령 캔들)가 생성되어 종목이 누락되던 치명적인 버그를 수정했습니다.
+**업데이트:** 야후 서버의 금요일 거래량 누락 에러 시 멀쩡한 데이터가 삭제되는 현상을 고쳤습니다. 이제 '거래량'이 아닌 '토/일 요일' 기준으로만 가짜 주말 캔들을 삭제합니다.
 """)
 
 # ==========================================
@@ -167,23 +167,26 @@ def analyze_stock(ticker_info, timeframe):
             except: pass
 
         # ==============================================
-        # 🚨 [핵심 버그 픽스] 야후 파이낸스 주말 유령 캔들 퇴치기
+        # 🚨 [핵심 버그 픽스] 달력(요일) 기준 유령 퇴치
         # ==============================================
-        # 주말에 야후 서버가 맘대로 추가하는 '거래량 0' 짜리 가짜 토요일 데이터 삭제
-        if 'Volume' in df.columns:
-            df = df[df['Volume'] > 0]
+        # 시간 형식 맞추기
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        
+        # 월~금(0~4) 데이터만 남기고, 토/일(5, 6) 데이터는 무조건 삭제
+        df = df[df.index.weekday < 5]
+        
         # 값이 비어있는 오류 행 삭제
         df = df.dropna(subset=['Close', 'Open'])
 
         if len(df) < 60: return result
 
         if timeframe == "4H":
-            if not isinstance(df.index, pd.DatetimeIndex): df.index = pd.to_datetime(df.index)
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
             if 'Volume' not in df.columns: del agg['Volume']
             df = df.resample('4h').agg(agg).dropna()
-            if 'Volume' in df.columns:
-                df = df[df['Volume'] > 0]
+            # 4시간봉도 혹시 모를 주말 찌꺼기 삭제
+            df = df[df.index.weekday < 5]
 
         df['EMA5'] = calc_ema(df['Close'], 5)
         df['EMA20'] = calc_ema(df['Close'], 20)
