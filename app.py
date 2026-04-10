@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v19 (등락률/거래량 복구)", layout="wide")
-st.title(" 🎯 Stock Hunter v19 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v20 (유령 캔들 퇴치)", layout="wide")
+st.title(" 🎯 Stock Hunter v20 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 메인 스캔 화면(급등대기, 샌드위치)에서 누락되었던 **어제/오늘 등락률** 및 **거래량 증감 퍼센트** 표시가 원상복구 되었습니다.
+**업데이트:** 주말 새벽 야후 파이낸스 서버 오류로 인해 코스피(.KS) 종목에 '거래량 0'짜리 가짜 데이터(유령 캔들)가 생성되어 종목이 누락되던 치명적인 버그를 수정했습니다.
 """)
 
 # ==========================================
@@ -166,13 +166,24 @@ def analyze_stock(ticker_info, timeframe):
             try: df.columns = df.columns.get_level_values(0)
             except: pass
 
+        # ==============================================
+        # 🚨 [핵심 버그 픽스] 야후 파이낸스 주말 유령 캔들 퇴치기
+        # ==============================================
+        # 주말에 야후 서버가 맘대로 추가하는 '거래량 0' 짜리 가짜 토요일 데이터 삭제
+        if 'Volume' in df.columns:
+            df = df[df['Volume'] > 0]
+        # 값이 비어있는 오류 행 삭제
+        df = df.dropna(subset=['Close', 'Open'])
+
+        if len(df) < 60: return result
+
         if timeframe == "4H":
             if not isinstance(df.index, pd.DatetimeIndex): df.index = pd.to_datetime(df.index)
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
             if 'Volume' not in df.columns: del agg['Volume']
             df = df.resample('4h').agg(agg).dropna()
-
-        if len(df) < 60 or 'Close' not in df.columns: return result
+            if 'Volume' in df.columns:
+                df = df[df['Volume'] > 0]
 
         df['EMA5'] = calc_ema(df['Close'], 5)
         df['EMA20'] = calc_ema(df['Close'], 20)
@@ -185,7 +196,7 @@ def analyze_stock(ticker_info, timeframe):
         d3 = df.iloc[-4] if len(df) >= 4 else None
 
         # ==============================================
-        # 📊 전일 타점 성적표 (성과 검증)
+        # 📊 전일 타점 성적표
         # ==============================================
         if d3 is not None:
             try:
@@ -224,7 +235,7 @@ def analyze_stock(ticker_info, timeframe):
                 except: pass
 
         # ==============================================
-        # 🟢 현재 기준 사냥 로직 (등락률/거래량 완전 복구)
+        # 🟢 현재 기준 사냥 로직
         # ==============================================
         # === 1. 샌드위치 ===
         try:
@@ -233,7 +244,6 @@ def analyze_stock(ticker_info, timeframe):
             support_line = d1['Open'] + ((d1['Close'] - d1['Open']) * 0.3)
             
             if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
-                # 등락률 및 거래량 계산 (복구됨)
                 yest_pct = (d1['Close'] - d2['Close']) / d2['Close'] * 100 if d2['Close'] else 0
                 today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100 if d1['Close'] else 0
                 vol_yest_man = int(d1['Volume'] / 10000)
@@ -257,7 +267,6 @@ def analyze_stock(ticker_info, timeframe):
                     (d0['Close'] <= d1['Close']) and 
                     (d0['Volume'] <= d1['Volume'] * 0.50)):
                     
-                    # 등락률 및 거래량 계산 (복구됨)
                     yest_pct = (d1['Close'] - d2['Close']) / d2['Close'] * 100 if d2['Close'] else 0
                     today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100 if d1['Close'] else 0
                     vol_yest_man = int(d1['Volume'] / 10000)
