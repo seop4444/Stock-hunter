@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v22 (KRX 데이터 직결)", layout="wide")
-st.title(" 🎯 Stock Hunter v22 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v23 (성적표 누락 버그 픽스)", layout="wide")
+st.title(" 🎯 Stock Hunter v23 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 주말에 야후 파이낸스 서버가 한국 주식의 금요일 데이터를 날려버리는 치명적 버그를 해결하기 위해, 일봉(1D) 데이터 수집을 한국 공식 데이터(FDR)로 전면 교체했습니다. 이제 주말에도 무조건 '금요일' 종가로 정확히 계산됩니다.
+**업데이트:** 전일 성적표(Review) 탭에서 '샌드위치'와 '급등대기' 조건이 중복될 경우 급등대기 결과가 누락(Skip)되던 논리 오류를 완벽하게 수정했습니다. 이제 어제 포착된 모든 패턴이 누락 없이 출력됩니다.
 """)
 
 # ==========================================
@@ -153,12 +153,13 @@ def calc_supertrend(df, period=10, multiplier=3.0):
 def analyze_stock(ticker_info, timeframe):
     ticker = ticker_info['code']
     name = ticker_info['name']
-    result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "review": None}
+    
+    # 🚨 [수정] review를 리스트 배열로 바꿔서 성적표 누락을 방지
+    result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "reviews": []}
     
     try:
         is_krx = (".KS" in ticker or ".KQ" in ticker)
         
-        # 🚨 [핵심 버그 픽스] 야후 데이터 버리고 한국 공식 데이터(FDR) 직결
         if timeframe == "1D" and is_krx:
             code = ticker.replace('.KS', '').replace('.KQ', '')
             try:
@@ -182,7 +183,6 @@ def analyze_stock(ticker_info, timeframe):
                 df.index = pd.to_datetime(df.index)
             df = df[df.index.weekday < 5]
 
-        # 결측치(값이 비어있는 행) 제거
         df = df.dropna(subset=['Close', 'Open'])
 
         if len(df) < 60: return result
@@ -200,15 +200,14 @@ def analyze_stock(ticker_info, timeframe):
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
-        # d0: 오늘(가장 최신 거래일, 현재 주말이면 '금요일')
-        # d1: 어제(금요일의 하루 전 '목요일')
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
         d3 = df.iloc[-4] if len(df) >= 4 else None
 
         # ==============================================
-        # 📊 전일 타점 성적표
+        # 📊 전일 타점 성적표 (누락 방지)
         # ==============================================
         if d3 is not None:
+            # 1. 샌드위치 검사 (리스트에 추가)
             try:
                 rise_d2 = (d2['Close'] - d2['Open']) / d2['Open']
                 body_d1 = abs(d1['Close'] - d1['Open']) / d1['Open']
@@ -217,32 +216,32 @@ def analyze_stock(ticker_info, timeframe):
                 if rise_d2 >= 0.05 and body_d1 <= 0.04 and d1['Close'] >= support_line_review:
                     today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                     vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
-                    result["review"] = {
+                    result["reviews"].append({
                         "종목명": name, "티커": ticker, "패턴": "🥪 샌드위치 (어제)",
                         "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
                         "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
                         "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
                         "발견시간": time.strftime("%H:%M:%S")
-                    }
+                    })
             except: pass
 
-            if result["review"] is None:
-                try:
-                    if d2['Open'] > 0 and d3['Volume'] > 0:
-                        if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
-                            (d2['Volume'] >= d3['Volume'] * 1.5) and 
-                            (d1['Close'] <= d2['Close']) and 
-                            (d1['Volume'] <= d2['Volume'] * 0.50)):
-                            today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
-                            vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
-                            result["review"] = {
-                                "종목명": name, "티커": ticker, "패턴": "🚀 급등 대기 (어제)",
-                                "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
-                                "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
-                                "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
-                                "발견시간": time.strftime("%H:%M:%S")
-                            }
-                except: pass
+            # 2. 급등 대기 검사 (기존의 if review is None 지우고 독립적으로 리스트에 추가)
+            try:
+                if d2['Open'] > 0 and d3['Volume'] > 0:
+                    if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
+                        (d2['Volume'] >= d3['Volume'] * 1.5) and 
+                        (d1['Close'] <= d2['Close']) and 
+                        (d1['Volume'] <= d2['Volume'] * 0.50)):
+                        today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                        vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
+                        result["reviews"].append({
+                            "종목명": name, "티커": ticker, "패턴": "🚀 급등 대기 (어제)",
+                            "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
+                            "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
+                            "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
+                            "발견시간": time.strftime("%H:%M:%S")
+                        })
+            except: pass
 
         # ==============================================
         # 🟢 현재 기준 사냥 로직
@@ -398,14 +397,14 @@ if st.session_state.running:
                         if res_d['touch']: d_touch.append(res_d['touch']); found=True
                         if res_d['surge_prep']: d_surge.append(res_d['surge_prep']); found=True
                         if res_d['sandwich']: d_sandwich.append(res_d['sandwich']); found=True
-                        if res_d['review']: d_review.append(res_d['review']); found=True
+                        if res_d['reviews']: d_review.extend(res_d['reviews']); found=True
                         
                         if res_h['sniper']: h_sniper.append(res_h['sniper']); found=True
                         if res_h['entry']: h_entry.append(res_h['entry']); found=True
                         if res_h['touch']: h_touch.append(res_h['touch']); found=True
                         if res_h['surge_prep']: h_surge.append(res_h['surge_prep']); found=True
                         if res_h['sandwich']: h_sandwich.append(res_h['sandwich']); found=True
-                        if res_h['review']: h_review.append(res_h['review']); found=True
+                        if res_h['reviews']: h_review.extend(res_h['reviews']); found=True
                         
                         if found:
                             success_cnt += 1
@@ -439,14 +438,14 @@ if st.session_state.running:
             if not d_touch: d_table_touch.caption("조건에 맞는 종목이 없습니다.")
             if not d_surge: d_table_surge.caption("조건에 맞는 종목이 없습니다.")
             if not d_sandwich: d_table_sandwich.caption("조건에 맞는 종목이 없습니다.")
-            if not d_review: d_table_review.info("📊 전일(목요일) 포착된 종목이 없거나, 주말이라 아직 다음 거래일(월요일) 결과가 나오지 않았습니다.")
+            if not d_review: d_table_review.info("📊 전일 포착된 종목이 없거나 데이터를 불러오는 중입니다.")
 
             if not h_sniper: h_table_sniper.caption("조건에 맞는 종목이 없습니다.")
             if not h_entry: h_table_entry.caption("조건에 맞는 종목이 없습니다.")
             if not h_touch: h_table_touch.caption("조건에 맞는 종목이 없습니다.")
             if not h_surge: h_table_surge.caption("조건에 맞는 종목이 없습니다.")
             if not h_sandwich: h_table_sandwich.caption("조건에 맞는 종목이 없습니다.")
-            if not h_review: h_table_review.info("📊 이전 캔들에서 포착된 종목이 없거나, 아직 다음 캔들 결과가 생성되지 않았습니다.")
+            if not h_review: h_table_review.info("📊 이전 캔들에서 포착된 종목이 없거나 데이터를 불러오는 중입니다.")
             
             if not (d_sniper or d_entry or d_touch or d_surge or d_sandwich or d_review or h_sniper or h_entry or h_touch or h_surge or h_sandwich or h_review):
                 st.warning("조건에 맞는 종목을 아예 찾지 못했습니다.")
