@@ -86,7 +86,7 @@ st.divider()
 # ==========================================
 # 2. 데이터 수집
 # ==========================================
-@st.cache_data
+@st.cache_data(ttl=3600)
 def get_stock_list_final(market_name, scan_limit):
     results = []
     kr_garbage = ['KODEX', 'TIGER', 'ACE', 'KBSTAR', 'HANARO', 'SOL', 'KOSEF', 'ARIRANG', 'TIMEFOLIO', 'KOACT', 'WOORI', 'PLUS', 'MASTER', 'HK', 'FOCUS', 'RISE', 'KIWOOM', '1Q', 'WON', 'HERO', 'UNICORN', 'MIGHTY', 'QV', 'ETN', 'ETF', '스팩', 'SPAC', '인수목적', '전환', '선물', '채권', '레버리지', '인버스', '배당', '커버드콜', '리츠', 'REITS', '인프라', '선박', '투자', '펀드', '지주', '홀딩스']
