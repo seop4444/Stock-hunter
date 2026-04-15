@@ -1,5 +1,4 @@
 import streamlit as st
-import FinanceDataReader as fdr
 import yfinance as yf
 import pandas as pd
 import time
@@ -9,6 +8,9 @@ import xml.etree.ElementTree as ET
 import email.utils
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# FDR은 이제 미국 주식용으로만 제한적으로 사용
+import FinanceDataReader as fdr 
 
 # 윈도우 전용 알람 (서버 에러 방지)
 try:
@@ -20,11 +22,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v24 (차단 우회 시스템)", layout="wide")
-st.title(" 🎯 Stock Hunter v24 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v25 (네이버 스텔스 크롤링)", layout="wide")
+st.title(" 🎯 Stock Hunter v25 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 잦은 스캔으로 인한 한국거래소(KRX) IP 차단 현상을 우회하는 플랜 B 로직이 추가되었으며, 데이터 꼬임 현상을 방지하기 위해 캐시 강제 만료(1시간)가 적용되었습니다.
+**업데이트:** 한국거래소(KRX) IP 차단 이슈를 영구적으로 해결하기 위해, 한국 주식 리스트 수집 방식을 '네이버 금융 시가총액 스텔스 크롤링'으로 전면 교체했습니다. 이제 방화벽 차단 없이 쾌적하게 스캔됩니다.
 """)
 
 # ==========================================
@@ -84,7 +86,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집 (캐시 1시간 유지 및 우회 로직 추가)
+# 2. 데이터 수집 (네이버 스텔스 크롤링 적용)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_stock_list_final(market_name, scan_limit):
@@ -93,6 +95,7 @@ def get_stock_list_final(market_name, scan_limit):
     us_garbage = ['ETF', 'ETN', 'Acquisition', 'SPAC', 'Fund', 'Trust', 'REIT', 'Bull', 'Bear', '2X', '3X', 'Ultra', 'Short', 'ProShares', 'Direxion', 'Vanguard', 'iShares', 'Invesco', 'Global X', 'Schwab', 'First Trust']
 
     try:
+        # 미국 시장은 기존 FDR 유지 (블락 위험 적음)
         if "S&P" in market_name or "NASDAQ" in market_name or "Russell" in market_name:
             df = fdr.StockListing('S&P500') if "S&P" in market_name else (fdr.StockListing('NYSE') if "Russell" in market_name else fdr.StockListing('NASDAQ'))
             col_map = {c.lower(): c for c in df.columns}
@@ -104,32 +107,40 @@ def get_stock_list_final(market_name, scan_limit):
                 name = row.get('Name', ticker)
                 if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
+        
+        # 🚨 [v25 핵심] 한국 시장은 네이버 금융 시가총액 스텔스 크롤링으로 완벽 우회
         else:
-            # 기본 호출 시도
-            try:
-                df = fdr.StockListing('KOSPI') if "KOSPI" in market_name else fdr.StockListing('KOSDAQ')
-            except Exception as e:
-                # 에러 발생 시 우회 통로(KRX 전체 긁어오기) 작동
-                st.warning(f"서버 접속 우회 중... (사유: {str(e)})")
-                df_all = fdr.StockListing('KRX')
-                market_filter = 'KOSPI' if "KOSPI" in market_name else 'KOSDAQ'
-                df = df_all[df_all['Market'] == market_filter]
-
+            sosok = "0" if "KOSPI" in market_name else "1"
             suffix = ".KS" if "KOSPI" in market_name else ".KQ"
+            limit_val = 2000 if scan_limit == "전체 (All)" else int(scan_limit)
             
-            col_map = {c.lower(): c for c in df.columns}
-            if 'marcap' in col_map: df = df.sort_values(by=col_map['marcap'], ascending=False)
-            elif 'marketcap' in col_map: df = df.sort_values(by=col_map['marketcap'], ascending=False)
-            if scan_limit != "전체 (All)": df = df.head(int(scan_limit))
+            # 네이버는 한 페이지에 50개씩 보여줌
+            max_pages = (limit_val // 50) + 2
             
-            for idx, row in df.iterrows():
-                ticker = str(row.get('Code', ''))
-                name = str(row.get('Name', ''))
-                is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
-                if not is_garbage: results.append({"code": ticker + suffix, "name": name})
+            for page in range(1, max_pages):
+                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
+                res = requests.get(url, headers=headers)
+                
+                # HTML 파싱 없이 정규식(Regex)으로 초고속 데이터 강탈
+                matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
+                
+                if not matches:
+                    break
+                    
+                for ticker, name in matches:
+                    is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
+                    if not is_garbage:
+                        results.append({"code": ticker + suffix, "name": name})
+                        
+                # 목표 개수(A급 필터링 완료된 종목 수)를 채우면 탈출
+                if len(results) >= limit_val:
+                    results = results[:limit_val]
+                    break
+                    
             return results
-    except Exception as final_e:
-        st.error(f"⚠️ 종목 리스트 수집 치명적 오류: {str(final_e)}")
+    except Exception as e:
+        st.error(f"⚠️ 네이버 크롤링 중 오류 발생: {str(e)}")
         return []
 
 # ==========================================
@@ -166,31 +177,22 @@ def analyze_stock(ticker_info, timeframe):
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "reviews": []}
     
     try:
-        is_krx = (".KS" in ticker or ".KQ" in ticker)
+        # 가격 데이터는 yfinance로 통일 (KRX 완전 배제)
+        tkr = yf.Ticker(ticker)
+        if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
+        else: df = tkr.history(period="60d", interval="1h")
+
+        if df.empty or len(df) < 60: return result
         
-        if timeframe == "1D" and is_krx:
-            code = ticker.replace('.KS', '').replace('.KQ', '')
-            try:
-                df = fdr.DataReader(code)
-                if df.empty or len(df) < 60: return result
-                df = df.tail(250)
-            except:
-                return result
-        else:
-            tkr = yf.Ticker(ticker)
-            if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
-            else: df = tkr.history(period="60d", interval="1h")
+        if isinstance(df.columns, pd.MultiIndex):
+            try: df.columns = df.columns.get_level_values(0)
+            except: pass
 
-            if df.empty or len(df) < 60: return result
-            
-            if isinstance(df.columns, pd.MultiIndex):
-                try: df.columns = df.columns.get_level_values(0)
-                except: pass
-
-            if not isinstance(df.index, pd.DatetimeIndex):
-                df.index = pd.to_datetime(df.index)
-            df = df[df.index.weekday < 5]
-
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        
+        # 주말 유령 캔들 삭제
+        df = df[df.index.weekday < 5]
         df = df.dropna(subset=['Close', 'Open'])
 
         if len(df) < 60: return result
@@ -361,11 +363,11 @@ if st.session_state.running:
             target_list = get_stock_list_final(market, limit_option)
             
             if not target_list:
-                st.error("⚠️ 접속이 완전히 차단되었거나 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.")
+                st.error("⚠️ 네이버 서버 접속에 실패했거나 데이터를 불러올 수 없습니다.")
                 st.session_state.running = False
                 break
                 
-            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (데이터 우회 회피 모드 작동 중)")
+            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (네이버 스텔스 모드 가동 중)")
             
             d_sniper, d_entry, d_touch, d_surge, d_sandwich, d_review = [], [], [], [], [], []
             h_sniper, h_entry, h_touch, h_surge, h_sandwich, h_review = [], [], [], [], [], []
