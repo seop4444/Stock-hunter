@@ -20,11 +20,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v23 (성적표 누락 버그 픽스)", layout="wide")
-st.title(" 🎯 Stock Hunter v23 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v24 (차단 우회 시스템)", layout="wide")
+st.title(" 🎯 Stock Hunter v24 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 전일 성적표(Review) 탭에서 '샌드위치'와 '급등대기' 조건이 중복될 경우 급등대기 결과가 누락(Skip)되던 논리 오류를 완벽하게 수정했습니다. 이제 어제 포착된 모든 패턴이 누락 없이 출력됩니다.
+**업데이트:** 잦은 스캔으로 인한 한국거래소(KRX) IP 차단 현상을 우회하는 플랜 B 로직이 추가되었으며, 데이터 꼬임 현상을 방지하기 위해 캐시 강제 만료(1시간)가 적용되었습니다.
 """)
 
 # ==========================================
@@ -84,7 +84,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집
+# 2. 데이터 수집 (캐시 1시간 유지 및 우회 로직 추가)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_stock_list_final(market_name, scan_limit):
@@ -105,7 +105,16 @@ def get_stock_list_final(market_name, scan_limit):
                 if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
         else:
-            df = fdr.StockListing('KOSPI') if "KOSPI" in market_name else fdr.StockListing('KOSDAQ')
+            # 기본 호출 시도
+            try:
+                df = fdr.StockListing('KOSPI') if "KOSPI" in market_name else fdr.StockListing('KOSDAQ')
+            except Exception as e:
+                # 에러 발생 시 우회 통로(KRX 전체 긁어오기) 작동
+                st.warning(f"서버 접속 우회 중... (사유: {str(e)})")
+                df_all = fdr.StockListing('KRX')
+                market_filter = 'KOSPI' if "KOSPI" in market_name else 'KOSDAQ'
+                df = df_all[df_all['Market'] == market_filter]
+
             suffix = ".KS" if "KOSPI" in market_name else ".KQ"
             
             col_map = {c.lower(): c for c in df.columns}
@@ -119,7 +128,8 @@ def get_stock_list_final(market_name, scan_limit):
                 is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
                 if not is_garbage: results.append({"code": ticker + suffix, "name": name})
             return results
-    except:
+    except Exception as final_e:
+        st.error(f"⚠️ 종목 리스트 수집 치명적 오류: {str(final_e)}")
         return []
 
 # ==========================================
@@ -153,8 +163,6 @@ def calc_supertrend(df, period=10, multiplier=3.0):
 def analyze_stock(ticker_info, timeframe):
     ticker = ticker_info['code']
     name = ticker_info['name']
-    
-    # 🚨 [수정] review를 리스트 배열로 바꿔서 성적표 누락을 방지
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "reviews": []}
     
     try:
@@ -204,10 +212,9 @@ def analyze_stock(ticker_info, timeframe):
         d3 = df.iloc[-4] if len(df) >= 4 else None
 
         # ==============================================
-        # 📊 전일 타점 성적표 (누락 방지)
+        # 📊 전일 타점 성적표
         # ==============================================
         if d3 is not None:
-            # 1. 샌드위치 검사 (리스트에 추가)
             try:
                 rise_d2 = (d2['Close'] - d2['Open']) / d2['Open']
                 body_d1 = abs(d1['Close'] - d1['Open']) / d1['Open']
@@ -225,7 +232,6 @@ def analyze_stock(ticker_info, timeframe):
                     })
             except: pass
 
-            # 2. 급등 대기 검사 (기존의 if review is None 지우고 독립적으로 리스트에 추가)
             try:
                 if d2['Open'] > 0 and d3['Volume'] > 0:
                     if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
@@ -246,7 +252,6 @@ def analyze_stock(ticker_info, timeframe):
         # ==============================================
         # 🟢 현재 기준 사냥 로직
         # ==============================================
-        # === 1. 샌드위치 ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
@@ -268,7 +273,6 @@ def analyze_stock(ticker_info, timeframe):
                 }
         except: pass
 
-        # === 2. 급등 대기 ===
         try:
             if d1['Open'] > 0 and d2['Volume'] > 0:
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
@@ -355,12 +359,14 @@ if st.session_state.running:
     while st.session_state.running:
         with placeholder.container():
             target_list = get_stock_list_final(market, limit_option)
-            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (데이터 우회 회피 모드 작동 중)")
+            
             if not target_list:
-                st.error("종목 리스트를 불러오지 못했습니다.")
+                st.error("⚠️ 접속이 완전히 차단되었거나 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.")
                 st.session_state.running = False
                 break
                 
+            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (데이터 우회 회피 모드 작동 중)")
+            
             d_sniper, d_entry, d_touch, d_surge, d_sandwich, d_review = [], [], [], [], [], []
             h_sniper, h_entry, h_touch, h_surge, h_sandwich, h_review = [], [], [], [], [], []
             
