@@ -8,11 +8,8 @@ import xml.etree.ElementTree as ET
 import email.utils
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# FDR은 이제 미국 주식용으로만 제한적으로 사용
 import FinanceDataReader as fdr 
 
-# 윈도우 전용 알람 (서버 에러 방지)
 try:
     import winsound
     HAS_WINSOUND = True
@@ -22,11 +19,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v25 (네이버 스텔스 크롤링)", layout="wide")
-st.title(" 🎯 Stock Hunter v25 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v26 (N일 눌림목 포착)", layout="wide")
+st.title(" 🎯 Stock Hunter v26 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 한국거래소(KRX) IP 차단 이슈를 영구적으로 해결하기 위해, 한국 주식 리스트 수집 방식을 '네이버 금융 시가총액 스텔스 크롤링'으로 전면 교체했습니다. 이제 방화벽 차단 없이 쾌적하게 스캔됩니다.
+**업데이트:** 세력의 악랄한 '시간 끌기'를 잡아내기 위해 **[2일 연속 눌림목]**과 **[3일 연속 눌림목]** 패턴 포착 로직을 새롭게 추가했습니다. 거래량이 바싹 마른 진정한 N자형 바닥을 사냥하십시오!
 """)
 
 # ==========================================
@@ -51,20 +48,16 @@ def get_dashboard_data():
     except: pass
 
     def parse_pubdate(pubdate_str):
-        try:
-            return email.utils.parsedate_to_datetime(pubdate_str).strftime("%m-%d %H:%M")
+        try: return email.utils.parsedate_to_datetime(pubdate_str).strftime("%m-%d %H:%M")
         except: return ""
 
     try:
         kr_root = ET.fromstring(requests.get("https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko").content)
-        for item in kr_root.findall('.//item')[:4]:
-            kr_news.append({"title": item.find('title').text, "date": parse_pubdate(item.find('pubDate').text)})
+        for item in kr_root.findall('.//item')[:4]: kr_news.append({"title": item.find('title').text, "date": parse_pubdate(item.find('pubDate').text)})
         us_root = ET.fromstring(requests.get("https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en").content)
-        for item in us_root.findall('.//item')[:4]:
-            global_news.append({"title": item.find('title').text, "date": parse_pubdate(item.find('pubDate').text)})
+        for item in us_root.findall('.//item')[:4]: global_news.append({"title": item.find('title').text, "date": parse_pubdate(item.find('pubDate').text)})
     except:
-        kr_news = [{"title": "경제 뉴스 로딩 실패", "date": ""}]
-        global_news = [{"title": "경제 뉴스 로딩 실패", "date": ""}]
+        kr_news, global_news = [{"title": "뉴스 로딩 실패", "date": ""}], [{"title": "뉴스 로딩 실패", "date": ""}]
 
     return oil_data, kr_news, global_news
 
@@ -74,19 +67,17 @@ st.divider()
 col1, col2, col3 = st.columns([1, 1.5, 1.5])
 with col1:
     st.subheader("🛢️ WTI 원유 (Today)")
-    if oil_data['price']:
-        st.metric("Crude Oil (USD/bbl)", f"${oil_data['price']:.2f}", f"{oil_data['change']:.2f} ({oil_data['pct']:.2f}%)")
-        if oil_data['history'] is not None: st.line_chart(oil_data['history'], height=150)
+    if oil_data['price']: st.metric("Crude Oil", f"${oil_data['price']:.2f}", f"{oil_data['change']:.2f} ({oil_data['pct']:.2f}%)")
 with col2:
-    st.subheader("🇰🇷 실시간 국내 경제 뉴스")
+    st.subheader("🇰🇷 국내 경제 뉴스")
     for n in kr_news: st.markdown(f"- **[{n['date']}]** {n['title']}" if n['date'] else f"- {n['title']}")
 with col3:
-    st.subheader("🌎 실시간 월스트리트 뉴스")
+    st.subheader("🌎 월스트리트 뉴스")
     for n in global_news: st.markdown(f"- **[{n['date']}]** {n['title']}" if n['date'] else f"- {n['title']}")
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집 (네이버 스텔스 크롤링 적용)
+# 2. 데이터 수집 (네이버 스텔스 크롤링)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_stock_list_final(market_name, scan_limit):
@@ -95,7 +86,6 @@ def get_stock_list_final(market_name, scan_limit):
     us_garbage = ['ETF', 'ETN', 'Acquisition', 'SPAC', 'Fund', 'Trust', 'REIT', 'Bull', 'Bear', '2X', '3X', 'Ultra', 'Short', 'ProShares', 'Direxion', 'Vanguard', 'iShares', 'Invesco', 'Global X', 'Schwab', 'First Trust']
 
     try:
-        # 미국 시장은 기존 FDR 유지 (블락 위험 적음)
         if "S&P" in market_name or "NASDAQ" in market_name or "Russell" in market_name:
             df = fdr.StockListing('S&P500') if "S&P" in market_name else (fdr.StockListing('NYSE') if "Russell" in market_name else fdr.StockListing('NASDAQ'))
             col_map = {c.lower(): c for c in df.columns}
@@ -107,44 +97,29 @@ def get_stock_list_final(market_name, scan_limit):
                 name = row.get('Name', ticker)
                 if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
-        
-        # 🚨 [v25 핵심] 한국 시장은 네이버 금융 시가총액 스텔스 크롤링으로 완벽 우회
         else:
             sosok = "0" if "KOSPI" in market_name else "1"
             suffix = ".KS" if "KOSPI" in market_name else ".KQ"
             limit_val = 2000 if scan_limit == "전체 (All)" else int(scan_limit)
-            
-            # 네이버는 한 페이지에 50개씩 보여줌
             max_pages = (limit_val // 50) + 2
             
             for page in range(1, max_pages):
                 url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
                 res = requests.get(url, headers=headers)
-                
-                # HTML 파싱 없이 정규식(Regex)으로 초고속 데이터 강탈
                 matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
-                
-                if not matches:
-                    break
-                    
+                if not matches: break
                 for ticker, name in matches:
                     is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
-                    if not is_garbage:
-                        results.append({"code": ticker + suffix, "name": name})
-                        
-                # 목표 개수(A급 필터링 완료된 종목 수)를 채우면 탈출
-                if len(results) >= limit_val:
-                    results = results[:limit_val]
-                    break
-                    
+                    if not is_garbage: results.append({"code": ticker + suffix, "name": name})
+                if len(results) >= limit_val: break
             return results
     except Exception as e:
-        st.error(f"⚠️ 네이버 크롤링 중 오류 발생: {str(e)}")
+        st.error(f"⚠️ 리스트 수집 오류: {str(e)}")
         return []
 
 # ==========================================
-# 3. 보조지표 함수
+# 3. 보조지표
 # ==========================================
 def calc_ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def calc_rsi(series, period=14):
@@ -169,33 +144,23 @@ def calc_supertrend(df, period=10, multiplier=3.0):
     return dir_list
 
 # ==========================================
-# 4. 분석 로직
+# 4. 분석 로직 (N일 눌림목 추가)
 # ==========================================
 def analyze_stock(ticker_info, timeframe):
-    ticker = ticker_info['code']
-    name = ticker_info['name']
+    ticker, name = ticker_info['code'], ticker_info['name']
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "reviews": []}
     
     try:
-        # 가격 데이터는 yfinance로 통일 (KRX 완전 배제)
         tkr = yf.Ticker(ticker)
-        if timeframe == "1D": df = tkr.history(period="1y", interval="1d")
-        else: df = tkr.history(period="60d", interval="1h")
-
+        df = tkr.history(period="1y", interval="1d") if timeframe == "1D" else tkr.history(period="60d", interval="1h")
         if df.empty or len(df) < 60: return result
         
         if isinstance(df.columns, pd.MultiIndex):
             try: df.columns = df.columns.get_level_values(0)
             except: pass
 
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        
-        # 주말 유령 캔들 삭제
-        df = df[df.index.weekday < 5]
-        df = df.dropna(subset=['Close', 'Open'])
-
-        if len(df) < 60: return result
+        df.index = pd.to_datetime(df.index)
+        df = df[df.index.weekday < 5].dropna(subset=['Close', 'Open'])
 
         if timeframe == "4H":
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
@@ -203,98 +168,84 @@ def analyze_stock(ticker_info, timeframe):
             df = df.resample('4h').agg(agg).dropna()
             df = df[df.index.weekday < 5]
 
-        df['EMA5'] = calc_ema(df['Close'], 5)
-        df['EMA20'] = calc_ema(df['Close'], 20)
-        df['EMA60'] = calc_ema(df['Close'], 60)
-        df['EMA200'] = calc_ema(df['Close'], 200)
+        df['EMA5'], df['EMA20'], df['EMA60'], df['EMA200'] = calc_ema(df['Close'], 5), calc_ema(df['Close'], 20), calc_ema(df['Close'], 60), calc_ema(df['Close'], 200)
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
+        # d0(오늘), d1(어제), d2(그제), d3(3일전), d4(4일전)
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
         d3 = df.iloc[-4] if len(df) >= 4 else None
+        d4 = df.iloc[-5] if len(df) >= 5 else None
 
-        # ==============================================
-        # 📊 전일 타점 성적표
-        # ==============================================
-        if d3 is not None:
-            try:
-                rise_d2 = (d2['Close'] - d2['Open']) / d2['Open']
-                body_d1 = abs(d1['Close'] - d1['Open']) / d1['Open']
-                support_line_review = d2['Open'] + ((d2['Close'] - d2['Open']) * 0.3)
-                
-                if rise_d2 >= 0.05 and body_d1 <= 0.04 and d1['Close'] >= support_line_review:
-                    today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
-                    vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
-                    result["reviews"].append({
-                        "종목명": name, "티커": ticker, "패턴": "🥪 샌드위치 (어제)",
-                        "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
-                        "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
-                        "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
-                        "발견시간": time.strftime("%H:%M:%S")
-                    })
-            except: pass
-
-            try:
-                if d2['Open'] > 0 and d3['Volume'] > 0:
-                    if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
-                        (d2['Volume'] >= d3['Volume'] * 1.5) and 
-                        (d1['Close'] <= d2['Close']) and 
-                        (d1['Volume'] <= d2['Volume'] * 0.50)):
-                        today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
-                        vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
-                        result["reviews"].append({
-                            "종목명": name, "티커": ticker, "패턴": "🚀 급등 대기 (어제)",
-                            "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
-                            "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
-                            "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
-                            "발견시간": time.strftime("%H:%M:%S")
-                        })
-            except: pass
-
-        # ==============================================
-        # 🟢 현재 기준 사냥 로직
-        # ==============================================
+        # === 샌드위치 (단봉 눌림) ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
             support_line = d1['Open'] + ((d1['Close'] - d1['Open']) * 0.3)
             
             if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
-                yest_pct = (d1['Close'] - d2['Close']) / d2['Close'] * 100 if d2['Close'] else 0
-                today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100 if d1['Close'] else 0
-                vol_yest_man = int(d1['Volume'] / 10000)
-                vol_today_man = int(d0['Volume'] / 10000)
+                today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                 vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
-
                 result["sandwich"] = {
                     "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                    "패턴": "🥪 샌드위치 매복 (도지)",
-                    "등락률": f"어제 {'+' if yest_pct > 0 else ''}{round(yest_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
-                    "거래량": f"어제 {vol_yest_man}만 / 오늘 {vol_today_man}만 ({'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%)",
+                    "패턴": "🥪 샌드위치 매복 (단봉)",
+                    "등락률": f"오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                    "거래량": f"어제 {int(d1['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만 ({'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%)",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
 
+        # === 🚀 급등 대기 (1일 눌림 / 2일 눌림 / 3일 눌림) ===
         try:
+            # [1] 1일 눌림목 (어제 급등, 오늘 거래량 반토막)
             if d1['Open'] > 0 and d2['Volume'] > 0:
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
                     (d1['Volume'] >= d2['Volume'] * 1.5) and 
-                    (d0['Close'] <= d1['Close']) and 
-                    (d0['Volume'] <= d1['Volume'] * 0.50)):
+                    (d0['Close'] <= d1['Close'] * 1.02) and 
+                    (d0['Close'] >= d1['Open'] + (d1['Close']-d1['Open'])*0.4) and 
+                    (d0['Volume'] <= d1['Volume'] * 0.60)):
                     
-                    yest_pct = (d1['Close'] - d2['Close']) / d2['Close'] * 100 if d2['Close'] else 0
-                    today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100 if d1['Close'] else 0
-                    vol_yest_man = int(d1['Volume'] / 10000)
-                    vol_today_man = int(d0['Volume'] / 10000)
-                    vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
-
+                    today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                    vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100
                     result["surge_prep"] = {
                         "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                        "패턴": "🚀 급등 대기 (눌림목)",
-                        "등락률": f"어제 {'+' if yest_pct > 0 else ''}{round(yest_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
-                        "거래량": f"어제 {vol_yest_man}만 / 오늘 {vol_today_man}만 ({'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%)",
+                        "패턴": "🚀 급등 대기 (1일 눌림)",
+                        "등락률": f"어제급등 / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                        "거래량": f"어제 {int(d1['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만 ({round(vol_pct, 1)}%)",
                         "발견시간": time.strftime("%H:%M:%S")
                     }
+                    
+            # [2] 2일 연속 눌림목 (그저께 급등, 어제/오늘 거래량 마름)
+            if result["surge_prep"] is None and d3 is not None and d2['Open'] > 0 and d3['Volume'] > 0:
+                if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
+                    (d2['Volume'] >= d3['Volume'] * 1.5)):
+                    mid_d2 = d2['Open'] + (d2['Close'] - d2['Open']) * 0.5
+                    if (d1['Close'] >= mid_d2) and (d0['Close'] >= mid_d2) and (d0['Close'] <= d2['Close'] * 1.02):
+                        if (d1['Volume'] <= d2['Volume'] * 0.7) and (d0['Volume'] <= d2['Volume'] * 0.5):
+                            today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                            result["surge_prep"] = {
+                                "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
+                                "패턴": "🚀 급등 대기 (2일 눌림)",
+                                "등락률": f"이틀전 급등 / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                                "거래량": f"급등일 {int(d2['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만",
+                                "발견시간": time.strftime("%H:%M:%S")
+                            }
+
+            # [3] 3일 연속 눌림목 (3일전 급등, 그제/어제/오늘 거래량 마름)
+            if result["surge_prep"] is None and d4 is not None and d3['Open'] > 0 and d4['Volume'] > 0:
+                if (((d3['Close'] - d3['Open']) / d3['Open'] >= 0.05) and 
+                    (d3['Volume'] >= d4['Volume'] * 1.5)):
+                    mid_d3 = d3['Open'] + (d3['Close'] - d3['Open']) * 0.5
+                    if (d2['Close'] >= mid_d3) and (d1['Close'] >= mid_d3) and (d0['Close'] >= mid_d3) and (d0['Close'] <= d3['Close'] * 1.02):
+                        if (d0['Volume'] <= d3['Volume'] * 0.5):
+                            today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                            result["surge_prep"] = {
+                                "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
+                                "패턴": "🚀 급등 대기 (3일 눌림)",
+                                "등락률": f"3일전 급등 / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                                "거래량": f"급등일 {int(d3['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만",
+                                "발견시간": time.strftime("%H:%M:%S")
+                            }
         except: pass
 
         for i in range(3):
@@ -334,9 +285,7 @@ with st.sidebar:
     interval = st.number_input("대기 시간 (분)", min_value=1, value=10)
     
     if HAS_WINSOUND: sound_on = st.checkbox("🔊 알람 켜기 (PC전용)", value=True)
-    else:
-        st.caption("📱 알람 기능은 웹 서버 환경에서 자동 음소거 됩니다.")
-        sound_on = False
+    else: sound_on = False
         
     show_log = st.checkbox("📝 분석 로그 보기", value=True)
     if st.button("↻ 데이터 초기화"):
@@ -363,17 +312,17 @@ if st.session_state.running:
             target_list = get_stock_list_final(market, limit_option)
             
             if not target_list:
-                st.error("⚠️ 네이버 서버 접속에 실패했거나 데이터를 불러올 수 없습니다.")
+                st.error("⚠️ 데이터를 불러올 수 없습니다.")
                 st.session_state.running = False
                 break
                 
-            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중... (네이버 스텔스 모드 가동 중)")
+            st.info(f"🔍 [{time.strftime('%H:%M:%S')}] '{market}' 스캔 중...")
             
             d_sniper, d_entry, d_touch, d_surge, d_sandwich, d_review = [], [], [], [], [], []
             h_sniper, h_entry, h_touch, h_surge, h_sandwich, h_review = [], [], [], [], [], []
             
-            bar, status_text, log_box = st.progress(0), st.empty(), st.empty()
-            total, success_cnt = len(target_list), 0
+            bar, status_text = st.progress(0), st.empty()
+            total = len(target_list)
             
             main_tab1, main_tab2 = st.tabs(["📅 일봉 (Daily)", "⏳ 4시간봉 (4-Hour)"])
             with main_tab1:
@@ -390,11 +339,8 @@ if st.session_state.running:
                     if not st.session_state.running:
                         executor.shutdown(wait=False, cancel_futures=True)
                         break
-                    
                     if i % 5 == 0: bar.progress((i + 1) / total)
-                    stock_name = futures[future]['name']
-                    if show_log: status_text.text(f"Scanning... {stock_name} ({i+1}/{total})")
-                    log_box.caption(f"발견된 종목: {success_cnt}개 (1D & 4H 통합)")
+                    if show_log: status_text.text(f"Scanning... {futures[future]['name']} ({i+1}/{total})")
                     
                     try:
                         stock, res_d, res_h = future.result()
@@ -405,63 +351,37 @@ if st.session_state.running:
                         if res_d['touch']: d_touch.append(res_d['touch']); found=True
                         if res_d['surge_prep']: d_surge.append(res_d['surge_prep']); found=True
                         if res_d['sandwich']: d_sandwich.append(res_d['sandwich']); found=True
-                        if res_d['reviews']: d_review.extend(res_d['reviews']); found=True
                         
                         if res_h['sniper']: h_sniper.append(res_h['sniper']); found=True
                         if res_h['entry']: h_entry.append(res_h['entry']); found=True
                         if res_h['touch']: h_touch.append(res_h['touch']); found=True
                         if res_h['surge_prep']: h_surge.append(res_h['surge_prep']); found=True
                         if res_h['sandwich']: h_sandwich.append(res_h['sandwich']); found=True
-                        if res_h['reviews']: h_review.extend(res_h['reviews']); found=True
                         
-                        if found:
-                            success_cnt += 1
-                            if sound_on and HAS_WINSOUND: 
-                                try: winsound.Beep(1000, 150)
-                                except: pass
+                        if found and sound_on and HAS_WINSOUND: 
+                            try: winsound.Beep(1000, 150)
+                            except: pass
                             
                         if d_sniper: d_table_sniper.dataframe(pd.DataFrame(d_sniper), use_container_width=True)
                         if d_entry: d_table_entry.dataframe(pd.DataFrame(d_entry), use_container_width=True)
                         if d_touch: d_table_touch.dataframe(pd.DataFrame(d_touch), use_container_width=True)
                         if d_surge: d_table_surge.dataframe(pd.DataFrame(d_surge), use_container_width=True)
                         if d_sandwich: d_table_sandwich.dataframe(pd.DataFrame(d_sandwich), use_container_width=True)
-                        if d_review: d_table_review.dataframe(pd.DataFrame(d_review), use_container_width=True)
                         
                         if h_sniper: h_table_sniper.dataframe(pd.DataFrame(h_sniper), use_container_width=True)
                         if h_entry: h_table_entry.dataframe(pd.DataFrame(h_entry), use_container_width=True)
                         if h_touch: h_table_touch.dataframe(pd.DataFrame(h_touch), use_container_width=True)
                         if h_surge: h_table_surge.dataframe(pd.DataFrame(h_surge), use_container_width=True)
                         if h_sandwich: h_table_sandwich.dataframe(pd.DataFrame(h_sandwich), use_container_width=True)
-                        if h_review: h_table_review.dataframe(pd.DataFrame(h_review), use_container_width=True)
                             
-                    except Exception:
-                        continue
+                    except: continue
                         
             bar.progress(100)
             status_text.text("스캔 완료!")
-            log_box.empty()
 
-            if not d_sniper: d_table_sniper.caption("조건에 맞는 종목이 없습니다.")
-            if not d_entry: d_table_entry.caption("조건에 맞는 종목이 없습니다.")
-            if not d_touch: d_table_touch.caption("조건에 맞는 종목이 없습니다.")
-            if not d_surge: d_table_surge.caption("조건에 맞는 종목이 없습니다.")
-            if not d_sandwich: d_table_sandwich.caption("조건에 맞는 종목이 없습니다.")
-            if not d_review: d_table_review.info("📊 전일 포착된 종목이 없거나 데이터를 불러오는 중입니다.")
-
-            if not h_sniper: h_table_sniper.caption("조건에 맞는 종목이 없습니다.")
-            if not h_entry: h_table_entry.caption("조건에 맞는 종목이 없습니다.")
-            if not h_touch: h_table_touch.caption("조건에 맞는 종목이 없습니다.")
-            if not h_surge: h_table_surge.caption("조건에 맞는 종목이 없습니다.")
-            if not h_sandwich: h_table_sandwich.caption("조건에 맞는 종목이 없습니다.")
-            if not h_review: h_table_review.info("📊 이전 캔들에서 포착된 종목이 없거나 데이터를 불러오는 중입니다.")
-            
-            if not (d_sniper or d_entry or d_touch or d_surge or d_sandwich or d_review or h_sniper or h_entry or h_touch or h_surge or h_sandwich or h_review):
-                st.warning("조건에 맞는 종목을 아예 찾지 못했습니다.")
-                
             if auto_loop:
                 for s in range(interval * 60, 0, -1):
                     if not st.session_state.running: break
-                    st.caption(f"다음 스캔까지 {s}초 대기 중...")
                     time.sleep(1)
                 if st.session_state.running:
                     placeholder.empty()
