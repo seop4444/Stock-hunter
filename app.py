@@ -19,11 +19,11 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v26 (N일 눌림목 포착)", layout="wide")
-st.title(" 🎯 Stock Hunter v26 (클라우드 최적화)")
+st.set_page_config(page_title="Stock Hunter v27 (완전판)", layout="wide")
+st.title(" 🎯 Stock Hunter v27 (클라우드 최적화)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 세력의 악랄한 '시간 끌기'를 잡아내기 위해 **[2일 연속 눌림목]**과 **[3일 연속 눌림목]** 패턴 포착 로직을 새롭게 추가했습니다. 거래량이 바싹 마른 진정한 N자형 바닥을 사냥하십시오!
+**업데이트:** 누락되었던 전일 타점 복기(성적표) 기능과 상세 등락률(%) 데이터를 완벽하게 복구했으며, 2~3일 연속 눌림목 추적 기능이 정상적으로 통합되었습니다.
 """)
 
 # ==========================================
@@ -144,7 +144,7 @@ def calc_supertrend(df, period=10, multiplier=3.0):
     return dir_list
 
 # ==========================================
-# 4. 분석 로직 (N일 눌림목 추가)
+# 4. 분석 로직 (복구 완료)
 # ==========================================
 def analyze_stock(ticker_info, timeframe):
     ticker, name = ticker_info['code'], ticker_info['name']
@@ -172,32 +172,74 @@ def analyze_stock(ticker_info, timeframe):
         df['RSI'] = calc_rsi(df['Close'], 14)
         df['stDir'] = calc_supertrend(df, 10, 3.0)
 
-        # d0(오늘), d1(어제), d2(그제), d3(3일전), d4(4일전)
         d0, d1, d2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
         d3 = df.iloc[-4] if len(df) >= 4 else None
         d4 = df.iloc[-5] if len(df) >= 5 else None
 
-        # === 샌드위치 (단봉 눌림) ===
+        # ==============================================
+        # 📊 [복구완료] 전일 타점 성적표 
+        # ==============================================
+        if d3 is not None:
+            try:
+                rise_d2 = (d2['Close'] - d2['Open']) / d2['Open']
+                body_d1 = abs(d1['Close'] - d1['Open']) / d1['Open']
+                support_line_review = d2['Open'] + ((d2['Close'] - d2['Open']) * 0.3)
+                
+                if rise_d2 >= 0.05 and body_d1 <= 0.04 and d1['Close'] >= support_line_review:
+                    today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                    vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
+                    result["reviews"].append({
+                        "종목명": name, "티커": ticker, "패턴": "🥪 샌드위치 (어제)",
+                        "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
+                        "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
+                        "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
+                        "발견시간": time.strftime("%H:%M:%S")
+                    })
+            except: pass
+
+            try:
+                if d2['Open'] > 0 and d3['Volume'] > 0:
+                    if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
+                        (d2['Volume'] >= d3['Volume'] * 1.5) and 
+                        (d1['Close'] <= d2['Close']) and 
+                        (d1['Volume'] <= d2['Volume'] * 0.50)):
+                        today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
+                        vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
+                        result["reviews"].append({
+                            "종목명": name, "티커": ticker, "패턴": "🚀 급등 대기 (어제)",
+                            "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
+                            "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
+                            "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
+                            "발견시간": time.strftime("%H:%M:%S")
+                        })
+            except: pass
+
+        # ==============================================
+        # 🟢 현재 기준 사냥 로직
+        # ==============================================
+        
+        # === 🥪 샌드위치 (단봉 눌림) [복구완료] ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
             support_line = d1['Open'] + ((d1['Close'] - d1['Open']) * 0.3)
             
             if rise_d1 >= 0.05 and body_d0 <= 0.04 and d0['Close'] >= support_line:
+                yest_pct = (d1['Close'] - d2['Close']) / d2['Close'] * 100 if d2['Close'] else 0
                 today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                 vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
                 result["sandwich"] = {
                     "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
                     "패턴": "🥪 샌드위치 매복 (단봉)",
-                    "등락률": f"오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                    "등락률": f"어제 {'+' if yest_pct > 0 else ''}{round(yest_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
                     "거래량": f"어제 {int(d1['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만 ({'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%)",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
 
-        # === 🚀 급등 대기 (1일 눌림 / 2일 눌림 / 3일 눌림) ===
+        # === 🚀 급등 대기 (1일/2일/3일 눌림) [복구완료] ===
         try:
-            # [1] 1일 눌림목 (어제 급등, 오늘 거래량 반토막)
+            # [1] 1일 눌림목
             if d1['Open'] > 0 and d2['Volume'] > 0:
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
                     (d1['Volume'] >= d2['Volume'] * 1.5) and 
@@ -205,44 +247,47 @@ def analyze_stock(ticker_info, timeframe):
                     (d0['Close'] >= d1['Open'] + (d1['Close']-d1['Open'])*0.4) and 
                     (d0['Volume'] <= d1['Volume'] * 0.60)):
                     
+                    yest_pct = (d1['Close'] - d2['Close']) / d2['Close'] * 100
                     today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                     vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100
                     result["surge_prep"] = {
                         "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
                         "패턴": "🚀 급등 대기 (1일 눌림)",
-                        "등락률": f"어제급등 / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                        "등락률": f"어제 {'+' if yest_pct > 0 else ''}{round(yest_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
                         "거래량": f"어제 {int(d1['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만 ({round(vol_pct, 1)}%)",
                         "발견시간": time.strftime("%H:%M:%S")
                     }
                     
-            # [2] 2일 연속 눌림목 (그저께 급등, 어제/오늘 거래량 마름)
+            # [2] 2일 연속 눌림목
             if result["surge_prep"] is None and d3 is not None and d2['Open'] > 0 and d3['Volume'] > 0:
                 if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
                     (d2['Volume'] >= d3['Volume'] * 1.5)):
                     mid_d2 = d2['Open'] + (d2['Close'] - d2['Open']) * 0.5
                     if (d1['Close'] >= mid_d2) and (d0['Close'] >= mid_d2) and (d0['Close'] <= d2['Close'] * 1.02):
                         if (d1['Volume'] <= d2['Volume'] * 0.7) and (d0['Volume'] <= d2['Volume'] * 0.5):
+                            surge_pct = (d2['Close'] - d3['Close']) / d3['Close'] * 100
                             today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                             result["surge_prep"] = {
                                 "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
                                 "패턴": "🚀 급등 대기 (2일 눌림)",
-                                "등락률": f"이틀전 급등 / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                                "등락률": f"2일전 {'+' if surge_pct > 0 else ''}{round(surge_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
                                 "거래량": f"급등일 {int(d2['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만",
                                 "발견시간": time.strftime("%H:%M:%S")
                             }
 
-            # [3] 3일 연속 눌림목 (3일전 급등, 그제/어제/오늘 거래량 마름)
+            # [3] 3일 연속 눌림목
             if result["surge_prep"] is None and d4 is not None and d3['Open'] > 0 and d4['Volume'] > 0:
                 if (((d3['Close'] - d3['Open']) / d3['Open'] >= 0.05) and 
                     (d3['Volume'] >= d4['Volume'] * 1.5)):
                     mid_d3 = d3['Open'] + (d3['Close'] - d3['Open']) * 0.5
                     if (d2['Close'] >= mid_d3) and (d1['Close'] >= mid_d3) and (d0['Close'] >= mid_d3) and (d0['Close'] <= d3['Close'] * 1.02):
                         if (d0['Volume'] <= d3['Volume'] * 0.5):
+                            surge_pct = (d3['Close'] - d4['Close']) / d4['Close'] * 100
                             today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                             result["surge_prep"] = {
                                 "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
                                 "패턴": "🚀 급등 대기 (3일 눌림)",
-                                "등락률": f"3일전 급등 / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
+                                "등락률": f"3일전 {'+' if surge_pct > 0 else ''}{round(surge_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
                                 "거래량": f"급등일 {int(d3['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만",
                                 "발견시간": time.strftime("%H:%M:%S")
                             }
@@ -351,12 +396,14 @@ if st.session_state.running:
                         if res_d['touch']: d_touch.append(res_d['touch']); found=True
                         if res_d['surge_prep']: d_surge.append(res_d['surge_prep']); found=True
                         if res_d['sandwich']: d_sandwich.append(res_d['sandwich']); found=True
+                        if res_d['reviews']: d_review.extend(res_d['reviews']); found=True
                         
                         if res_h['sniper']: h_sniper.append(res_h['sniper']); found=True
                         if res_h['entry']: h_entry.append(res_h['entry']); found=True
                         if res_h['touch']: h_touch.append(res_h['touch']); found=True
                         if res_h['surge_prep']: h_surge.append(res_h['surge_prep']); found=True
                         if res_h['sandwich']: h_sandwich.append(res_h['sandwich']); found=True
+                        if res_h['reviews']: h_review.extend(res_h['reviews']); found=True
                         
                         if found and sound_on and HAS_WINSOUND: 
                             try: winsound.Beep(1000, 150)
@@ -367,12 +414,14 @@ if st.session_state.running:
                         if d_touch: d_table_touch.dataframe(pd.DataFrame(d_touch), use_container_width=True)
                         if d_surge: d_table_surge.dataframe(pd.DataFrame(d_surge), use_container_width=True)
                         if d_sandwich: d_table_sandwich.dataframe(pd.DataFrame(d_sandwich), use_container_width=True)
+                        if d_review: d_table_review.dataframe(pd.DataFrame(d_review), use_container_width=True)
                         
                         if h_sniper: h_table_sniper.dataframe(pd.DataFrame(h_sniper), use_container_width=True)
                         if h_entry: h_table_entry.dataframe(pd.DataFrame(h_entry), use_container_width=True)
                         if h_touch: h_table_touch.dataframe(pd.DataFrame(h_touch), use_container_width=True)
                         if h_surge: h_table_surge.dataframe(pd.DataFrame(h_surge), use_container_width=True)
                         if h_sandwich: h_table_sandwich.dataframe(pd.DataFrame(h_sandwich), use_container_width=True)
+                        if h_review: h_table_review.dataframe(pd.DataFrame(h_review), use_container_width=True)
                             
                     except: continue
                         
