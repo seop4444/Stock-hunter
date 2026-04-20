@@ -121,7 +121,7 @@ def get_stock_list_final(market_name, scan_limit):
         return []
 
 # ==========================================
-# 2.5. 수급(개인/외국인/기관) 데이터 크롤링 엔진
+# 2.5. 수급(개인/외국인/기관) 데이터 크롤링 엔진 (Pandas 파서 적용)
 # ==========================================
 def get_investor_trend(ticker):
     # 미국 주식은 수급 데이터 제공 불가
@@ -129,35 +129,46 @@ def get_investor_trend(ticker):
         return "-"
     try:
         clean_ticker = ticker.split('.')[0]
-        dummy = int(time.time() * 1000)
-        url = f"https://finance.naver.com/item/frgn.naver?code={clean_ticker}&dummy={dummy}"
+        url = f"https://finance.naver.com/item/frgn.naver?code={clean_ticker}"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
-        res = requests.get(url, headers=headers, timeout=3)
         
-        # 정규식을 통해 '외국인/기관' 테이블의 가장 최신 날짜(첫 번째 줄) 순매매량 추출
-        pattern = r'<td class="tc"><span class="tah p10 gray03">\d{4}\.\d{2}\.\d{2}</span></td>.*?' \
-                  r'<td class="num">.*?</td>.*?' \
-                  r'<td class="num">.*?</td>.*?' \
-                  r'<td class="num">.*?</td>.*?' \
-                  r'<td class="num">.*?</td>.*?' \
-                  r'<td class="num"><span class="tah p11[^>]*>([+\-0-9,]+)</span></td>.*?' \
-                  r'<td class="num"><span class="tah p11[^>]*>([+\-0-9,]+)</span></td>'
-                  
-        match = re.search(pattern, res.text, re.DOTALL)
-        if match:
-            inst_buy = int(match.group(1).replace(',', '').replace('+', ''))
-            foreign_buy = int(match.group(2).replace(',', '').replace('+', ''))
-            # 주식 시장의 제로섬 특성을 활용하여 개인 수급 역산 (가장 직관적인 방법)
-            indiv_buy = -(inst_buy + foreign_buy)
-            
-            def fmt(v):
-                if v > 0: return f"🔴+{v:,}"
-                elif v < 0: return f"🔵{v:,}"
-                return "0"
+        # 1. 데이터 요청 및 한글 인코딩 보호
+        res = requests.get(url, headers=headers, timeout=5)
+        res.encoding = 'euc-kr' 
+        
+        # 2. 낡은 정규식을 버리고, Pandas의 강력한 표(Table) 추출 기능 사용
+        dfs = pd.read_html(io.StringIO(res.text))
+        
+        # 3. 여러 표 중에서 '기관'과 '외국인'이 적힌 진짜 수급 테이블만 타겟팅
+        for df in dfs:
+            cols_str = str(df.columns.tolist())
+            if '기관' in cols_str and '외국인' in cols_str:
+                df_clean = df.dropna(how='all')
                 
-            return f"개인 {fmt(indiv_buy)} | 외인 {fmt(foreign_buy)} | 기관 {fmt(inst_buy)}"
+                # 4. 가장 최신 날짜(오늘)의 데이터 추출
+                for idx, row in df_clean.iterrows():
+                    # 첫 열이 날짜 데이터(YYYY.MM.DD 형식)인지 확인
+                    if str(row.iloc[0]).count('.') == 2: 
+                        inst = str(row.iloc[5]).replace(',', '').replace('+', '')
+                        frgn = str(row.iloc[6]).replace(',', '').replace('+', '')
+                        
+                        try:
+                            inst_buy = int(float(inst))
+                            foreign_buy = int(float(frgn))
+                            # 주식은 제로섬 게임이므로 외인+기관의 반대 포지션이 개인
+                            indiv_buy = -(inst_buy + foreign_buy) 
+                        except:
+                            return "장마감 집계중"
+                            
+                        def fmt(v):
+                            if v > 0: return f"🔴+{v:,}"
+                            elif v < 0: return f"🔵{v:,}"
+                            return "0"
+                            
+                        return f"개인 {fmt(indiv_buy)} | 외인 {fmt(foreign_buy)} | 기관 {fmt(inst_buy)}"
+                        
         return "데이터 없음"
-    except:
+    except Exception as e:
         return "수집 지연"
 
 # ==========================================
