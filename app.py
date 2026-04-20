@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import email.utils
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import FinanceDataReader as fdr 
+import FinanceDataReader as fdr
 
 try:
     import winsound
@@ -20,10 +20,10 @@ except ImportError:
 # 1. 페이지 설정
 # ==========================================
 st.set_page_config(page_title="Stock Hunter v27 (완전판)", layout="wide")
-st.title(" 🎯 Stock Hunter v27 (클라우드 최적화)")
+st.title(" 🎯 Stock Hunter v27 (실시간 캐시 무력화 버전)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔
-**업데이트:** 누락되었던 전일 타점 복기(성적표) 기능과 상세 등락률(%) 데이터를 완벽하게 복구했으며, 2~3일 연속 눌림목 추적 기능이 정상적으로 통합되었습니다.
+**업데이트:** 한국 주식 실시간 업데이트 누락(금요일 종가 멈춤) 현상을 해결하기 위해 FinanceDataReader 실시간 연동 및 네이버 스텔스 캐시 우회(Dummy Timestamp) 로직이 적용되었습니다.
 """)
 
 # ==========================================
@@ -77,7 +77,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집 (네이버 스텔스 크롤링)
+# 2. 데이터 수집 (네이버 스텔스 크롤링 + 실시간 캐시 무력화)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_stock_list_final(market_name, scan_limit):
@@ -103,8 +103,11 @@ def get_stock_list_final(market_name, scan_limit):
             limit_val = 2000 if scan_limit == "전체 (All)" else int(scan_limit)
             max_pages = (limit_val // 50) + 2
             
+            # [수정] 캐시 무력화를 위한 타임스탬프 생성
+            dummy_timestamp = int(time.time() * 1000)
+            
             for page in range(1, max_pages):
-                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}&dummy={dummy_timestamp}"
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
                 res = requests.get(url, headers=headers)
                 matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
@@ -144,22 +147,34 @@ def calc_supertrend(df, period=10, multiplier=3.0):
     return dir_list
 
 # ==========================================
-# 4. 분석 로직 (복구 완료)
+# 4. 분석 로직 (실시간 데이터 연동)
 # ==========================================
 def analyze_stock(ticker_info, timeframe):
     ticker, name = ticker_info['code'], ticker_info['name']
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "reviews": []}
     
     try:
-        tkr = yf.Ticker(ticker)
-        df = tkr.history(period="1y", interval="1d") if timeframe == "1D" else tkr.history(period="60d", interval="1h")
+        # [수정] 한국 주식의 1D 데이터는 야후 파이낸스 지연 문제를 피하기 위해 fdr(실시간) 사용
+        if timeframe == "1D" and (".KS" in ticker or ".KQ" in ticker):
+            clean_ticker = ticker.split('.')[0]
+            df = fdr.DataReader(clean_ticker)
+            if not df.empty:
+                df = df.tail(250)
+        else:
+            tkr = yf.Ticker(ticker)
+            df = tkr.history(period="1y", interval="1d") if timeframe == "1D" else tkr.history(period="60d", interval="1h")
+            
         if df.empty or len(df) < 60: return result
         
         if isinstance(df.columns, pd.MultiIndex):
             try: df.columns = df.columns.get_level_values(0)
             except: pass
 
+        # 날짜 인덱스 처리 및 시간대(TimeZone) 통일
         df.index = pd.to_datetime(df.index)
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+            
         df = df[df.index.weekday < 5].dropna(subset=['Close', 'Open'])
 
         if timeframe == "4H":
@@ -177,7 +192,7 @@ def analyze_stock(ticker_info, timeframe):
         d4 = df.iloc[-5] if len(df) >= 5 else None
 
         # ==============================================
-        # 📊 [복구완료] 전일 타점 성적표 
+        # 📊 전일 타점 성적표 
         # ==============================================
         if d3 is not None:
             try:
@@ -218,7 +233,7 @@ def analyze_stock(ticker_info, timeframe):
         # 🟢 현재 기준 사냥 로직
         # ==============================================
         
-        # === 🥪 샌드위치 (단봉 눌림) [복구완료] ===
+        # === 🥪 샌드위치 (단봉 눌림) ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
@@ -237,7 +252,7 @@ def analyze_stock(ticker_info, timeframe):
                 }
         except: pass
 
-        # === 🚀 급등 대기 (1일/2일/3일 눌림) [복구완료] ===
+        # === 🚀 급등 대기 (1일/2일/3일 눌림) ===
         try:
             # [1] 1일 눌림목
             if d1['Open'] > 0 and d2['Volume'] > 0:
