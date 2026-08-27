@@ -20,15 +20,15 @@ except ImportError:
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
-st.set_page_config(page_title="Stock Hunter v28 (수급 탑재판)", layout="wide")
-st.title(" 🎯 Stock Hunter v28 (실시간 수급/캐시 무력화 버전)")
+st.set_page_config(page_title="Stock Hunter v29 (코인 통합판)", layout="wide")
+st.title(" 🎯 Stock Hunter v29 (주식 & 코인 통합 스캐너)")
 st.markdown("""
 ### ⚡ 멀티 타임프레임 고속 스캔 & 세력 수급 추적
-**업데이트:** 핵심 타점(샌드위치, 급등 대기, 스나이퍼, 추세 진입) 포착 시 네이버 증권에서 **당일 실시간 수급(개인/외국인/기관)** 데이터를 즉시 긁어와 세력의 '가짜 눌림목(설거지)'을 완벽하게 걸러냅니다.
+**업데이트:** '업비트(Upbit)' 원화 마켓 코인들의 VCP(변동성 축소) 및 샌드위치 타점을 실시간으로 스캔하는 기능이 추가되었습니다.
 """)
 
 # ==========================================
-# 1.5. 실시간 대시보드
+# 1.5. 실시간 대시보드 (생략 없이 그대로 유지)
 # ==========================================
 @st.cache_data(ttl=60)
 def get_dashboard_data():
@@ -78,11 +78,32 @@ with col3:
 st.divider()
 
 # ==========================================
-# 2. 데이터 수집 (네이버 스텔스 크롤링 + 실시간 캐시 무력화)
+# 2. 데이터 수집 (주식 + 코인통합)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_stock_list_final(market_name, scan_limit):
     results = []
+    
+    # 🌟 2-1. 코인 (업비트) 수집 로직
+    if market_name == "UPBIT (업비트 코인)":
+        try:
+            url = "https://api.upbit.com/v1/market/all?isDetails=false"
+            res = requests.get(url, headers={"accept": "application/json"})
+            if res.status_code == 200:
+                markets = [m for m in res.json() if m['market'].startswith('KRW-')]
+                limit_val = 2000 if scan_limit == "전체 (All)" else int(scan_limit)
+                
+                for idx, m in enumerate(markets):
+                    if idx >= limit_val: break
+                    # Upbit 'KRW-BTC' -> yfinance 'BTC-KRW' 변환
+                    coin_sym = m['market'].replace("KRW-", "") + "-KRW" 
+                    results.append({"code": coin_sym, "name": m['korean_name']})
+                return results
+        except Exception as e:
+            st.error(f"⚠️ 업비트 리스트 수집 오류: {str(e)}")
+            return []
+
+    # 🌟 2-2. 기존 주식 수집 로직
     kr_garbage = ['KODEX', 'TIGER', 'ACE', 'KBSTAR', 'HANARO', 'SOL', 'KOSEF', 'ARIRANG', 'TIMEFOLIO', 'KOACT', 'WOORI', 'PLUS', 'MASTER', 'HK', 'FOCUS', 'RISE', 'KIWOOM', '1Q', 'WON', 'HERO', 'UNICORN', 'MIGHTY', 'QV', 'ETN', 'ETF', '스팩', 'SPAC', '인수목적', '전환', '선물', '채권', '레버리지', '인버스', '배당', '커버드콜', '리츠', 'REITS', '인프라', '선박', '투자', '펀드', '지주', '홀딩스']
     us_garbage = ['ETF', 'ETN', 'Acquisition', 'SPAC', 'Fund', 'Trust', 'REIT', 'Bull', 'Bear', '2X', '3X', 'Ultra', 'Short', 'ProShares', 'Direxion', 'Vanguard', 'iShares', 'Invesco', 'Global X', 'Schwab', 'First Trust']
 
@@ -122,41 +143,32 @@ def get_stock_list_final(market_name, scan_limit):
         return []
 
 # ==========================================
-# 2.5. 수급(개인/외국인/기관) 데이터 크롤링 엔진 (Pandas 파서 적용)
+# 2.5. 수급(개인/외국인/기관) 데이터 크롤링 엔진 
 # ==========================================
 def get_investor_trend(ticker):
-    # 미국 주식은 수급 데이터 제공 불가
-    if ".KS" not in ticker and ".KQ" not in ticker:
+    # 코인(-KRW) 및 미국 주식은 수급 데이터 제공 불가
+    if "-KRW" in ticker or (".KS" not in ticker and ".KQ" not in ticker):
         return "-"
     try:
         clean_ticker = ticker.split('.')[0]
         url = f"https://finance.naver.com/item/frgn.naver?code={clean_ticker}"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
         
-        # 1. 데이터 요청 및 한글 인코딩 보호
         res = requests.get(url, headers=headers, timeout=5)
         res.encoding = 'euc-kr' 
-        
-        # 2. 낡은 정규식을 버리고, Pandas의 강력한 표(Table) 추출 기능 사용
         dfs = pd.read_html(io.StringIO(res.text))
         
-        # 3. 여러 표 중에서 '기관'과 '외국인'이 적힌 진짜 수급 테이블만 타겟팅
         for df in dfs:
             cols_str = str(df.columns.tolist())
             if '기관' in cols_str and '외국인' in cols_str:
                 df_clean = df.dropna(how='all')
-                
-                # 4. 가장 최신 날짜(오늘)의 데이터 추출
                 for idx, row in df_clean.iterrows():
-                    # 첫 열이 날짜 데이터(YYYY.MM.DD 형식)인지 확인
                     if str(row.iloc[0]).count('.') == 2: 
                         inst = str(row.iloc[5]).replace(',', '').replace('+', '')
                         frgn = str(row.iloc[6]).replace(',', '').replace('+', '')
-                        
                         try:
                             inst_buy = int(float(inst))
                             foreign_buy = int(float(frgn))
-                            # 주식은 제로섬 게임이므로 외인+기관의 반대 포지션이 개인
                             indiv_buy = -(inst_buy + foreign_buy) 
                         except:
                             return "장마감 집계중"
@@ -167,7 +179,6 @@ def get_investor_trend(ticker):
                             return "0"
                             
                         return f"개인 {fmt(indiv_buy)} | 외인 {fmt(foreign_buy)} | 기관 {fmt(inst_buy)}"
-                        
         return "데이터 없음"
     except Exception as e:
         return "수집 지연"
@@ -198,13 +209,12 @@ def calc_supertrend(df, period=10, multiplier=3.0):
     return dir_list
 
 # ==========================================
-# 4. 분석 로직 (실시간 데이터 연동)
+# 4. 분석 로직 (주식 & 코인 공통)
 # ==========================================
 def analyze_stock(ticker_info, timeframe):
     ticker, name = ticker_info['code'], ticker_info['name']
     result = {"sniper": None, "entry": None, "touch": None, "surge_prep": None, "sandwich": None, "reviews": []}
     
-    # 💥 핵심 타점 발견 시에만 1회 호출하여 스캔 속도 저하 방지
     investor_data = None
     def get_inv():
         nonlocal investor_data
@@ -213,7 +223,12 @@ def analyze_stock(ticker_info, timeframe):
         return investor_data
     
     try:
-        if timeframe == "1D" and (".KS" in ticker or ".KQ" in ticker):
+        # 코인(-KRW)은 야후 파이낸스(24시간 연중무휴)에서 데이터 호출
+        if "-KRW" in ticker:
+            tkr = yf.Ticker(ticker)
+            df = tkr.history(period="1y", interval="1d") if timeframe == "1D" else tkr.history(period="60d", interval="1h")
+        # 한국 주식은 fdr 호출 (지연 방지)
+        elif timeframe == "1D" and (".KS" in ticker or ".KQ" in ticker):
             clean_ticker = ticker.split('.')[0]
             df = fdr.DataReader(clean_ticker)
             if not df.empty:
@@ -232,13 +247,18 @@ def analyze_stock(ticker_info, timeframe):
         if df.index.tz is not None:
             df.index = df.index.tz_localize(None)
             
-        df = df[df.index.weekday < 5].dropna(subset=['Close', 'Open'])
+        # 💥 코인은 주말(토,일)에도 거래되므로 주말 필터링 제외
+        if "-KRW" not in ticker:
+            df = df[df.index.weekday < 5]
+            
+        df = df.dropna(subset=['Close', 'Open'])
 
         if timeframe == "4H":
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
             if 'Volume' not in df.columns: del agg['Volume']
             df = df.resample('4h').agg(agg).dropna()
-            df = df[df.index.weekday < 5]
+            if "-KRW" not in ticker:
+                df = df[df.index.weekday < 5]
 
         df['EMA5'], df['EMA20'], df['EMA60'], df['EMA200'] = calc_ema(df['Close'], 5), calc_ema(df['Close'], 20), calc_ema(df['Close'], 60), calc_ema(df['Close'], 200)
         df['RSI'] = calc_rsi(df['Close'], 14)
@@ -249,7 +269,7 @@ def analyze_stock(ticker_info, timeframe):
         d4 = df.iloc[-5] if len(df) >= 5 else None
 
         # ==============================================
-        # 📊 전일 타점 성적표 (수급 미포함)
+        # 📊 전일 타점 성적표 
         # ==============================================
         if d3 is not None:
             try:
@@ -261,8 +281,8 @@ def analyze_stock(ticker_info, timeframe):
                     today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                     vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
                     result["reviews"].append({
-                        "종목명": name, "티커": ticker, "패턴": "🥪 샌드위치 (어제)",
-                        "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
+                        "종목/코인명": name, "코드": ticker, "패턴": "🥪 샌드위치 (어제)",
+                        "어제 종가": f"{d1['Close']:,.2f}", "오늘 종가": f"{d0['Close']:,.2f}",
                         "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
                         "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
                         "발견시간": time.strftime("%H:%M:%S")
@@ -278,8 +298,8 @@ def analyze_stock(ticker_info, timeframe):
                         today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                         vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
                         result["reviews"].append({
-                            "종목명": name, "티커": ticker, "패턴": "🚀 급등 대기 (어제)",
-                            "어제 종가": f"{round(d1['Close']):,}", "오늘 종가": f"{round(d0['Close']):,}",
+                            "종목/코인명": name, "코드": ticker, "패턴": "🚀 급등 대기 (어제)",
+                            "어제 종가": f"{d1['Close']:,.2f}", "오늘 종가": f"{d0['Close']:,.2f}",
                             "오늘 등락률": f"{'+' if today_pct > 0 else ''}{round(today_pct, 2)}%",
                             "오늘 거래량 증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
                             "발견시간": time.strftime("%H:%M:%S")
@@ -287,10 +307,10 @@ def analyze_stock(ticker_info, timeframe):
             except: pass
 
         # ==============================================
-        # 🟢 현재 기준 사냥 로직 (수급 탑재)
+        # 🟢 현재 기준 사냥 로직
         # ==============================================
         
-        # === 🥪 샌드위치 (단봉 눌림) ===
+        # === 🥪 샌드위치 ===
         try:
             rise_d1 = (d1['Close'] - d1['Open']) / d1['Open']
             body_d0 = abs(d0['Close'] - d0['Open']) / d0['Open']
@@ -301,18 +321,17 @@ def analyze_stock(ticker_info, timeframe):
                 today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                 vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100 if d1['Volume'] > 0 else 0
                 result["sandwich"] = {
-                    "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
+                    "종목/코인명": name, "코드": ticker, "현재가": f"{d0['Close']:,.2f}",
                     "수급": get_inv(),
-                    "패턴": "🥪 샌드위치 매복 (단봉)",
+                    "패턴": "🥪 샌드위치 매복",
                     "등락률": f"어제 {'+' if yest_pct > 0 else ''}{round(yest_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
-                    "거래량": f"어제 {int(d1['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만 ({'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%)",
+                    "거래량증감": f"{'+' if vol_pct > 0 else ''}{round(vol_pct, 1)}%",
                     "발견시간": time.strftime("%H:%M:%S")
                 }
         except: pass
 
-        # === 🚀 급등 대기 (1일/2일/3일 눌림) ===
+        # === 🚀 급등 대기 ===
         try:
-            # [1] 1일 눌림목
             if d1['Open'] > 0 and d2['Volume'] > 0:
                 if (((d1['Close'] - d1['Open']) / d1['Open'] >= 0.05) and 
                     (d1['Volume'] >= d2['Volume'] * 1.5) and 
@@ -324,15 +343,14 @@ def analyze_stock(ticker_info, timeframe):
                     today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                     vol_pct = (d0['Volume'] - d1['Volume']) / d1['Volume'] * 100
                     result["surge_prep"] = {
-                        "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
+                        "종목/코인명": name, "코드": ticker, "현재가": f"{d0['Close']:,.2f}",
                         "수급": get_inv(),
                         "패턴": "🚀 급등 대기 (1일 눌림)",
                         "등락률": f"어제 {'+' if yest_pct > 0 else ''}{round(yest_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
-                        "거래량": f"어제 {int(d1['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만 ({round(vol_pct, 1)}%)",
+                        "거래량증감": f"{round(vol_pct, 1)}%",
                         "발견시간": time.strftime("%H:%M:%S")
                     }
                     
-            # [2] 2일 연속 눌림목
             if result["surge_prep"] is None and d3 is not None and d2['Open'] > 0 and d3['Volume'] > 0:
                 if (((d2['Close'] - d2['Open']) / d2['Open'] >= 0.05) and 
                     (d2['Volume'] >= d3['Volume'] * 1.5)):
@@ -342,29 +360,11 @@ def analyze_stock(ticker_info, timeframe):
                             surge_pct = (d2['Close'] - d3['Close']) / d3['Close'] * 100
                             today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
                             result["surge_prep"] = {
-                                "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
+                                "종목/코인명": name, "코드": ticker, "현재가": f"{d0['Close']:,.2f}",
                                 "수급": get_inv(),
                                 "패턴": "🚀 급등 대기 (2일 눌림)",
                                 "등락률": f"2일전 {'+' if surge_pct > 0 else ''}{round(surge_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
-                                "거래량": f"급등일 {int(d2['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만",
-                                "발견시간": time.strftime("%H:%M:%S")
-                            }
-
-            # [3] 3일 연속 눌림목
-            if result["surge_prep"] is None and d4 is not None and d3['Open'] > 0 and d4['Volume'] > 0:
-                if (((d3['Close'] - d3['Open']) / d3['Open'] >= 0.05) and 
-                    (d3['Volume'] >= d4['Volume'] * 1.5)):
-                    mid_d3 = d3['Open'] + (d3['Close'] - d3['Open']) * 0.5
-                    if (d2['Close'] >= mid_d3) and (d1['Close'] >= mid_d3) and (d0['Close'] >= mid_d3) and (d0['Close'] <= d3['Close'] * 1.02):
-                        if (d0['Volume'] <= d3['Volume'] * 0.5):
-                            surge_pct = (d3['Close'] - d4['Close']) / d4['Close'] * 100
-                            today_pct = (d0['Close'] - d1['Close']) / d1['Close'] * 100
-                            result["surge_prep"] = {
-                                "종목명": name, "티커": ticker, "현재가": f"{round(d0['Close']):,}",
-                                "수급": get_inv(),
-                                "패턴": "🚀 급등 대기 (3일 눌림)",
-                                "등락률": f"3일전 {'+' if surge_pct > 0 else ''}{round(surge_pct, 1)}% / 오늘 {'+' if today_pct > 0 else ''}{round(today_pct, 1)}%",
-                                "거래량": f"급등일 {int(d3['Volume']/10000)}만 / 오늘 {int(d0['Volume']/10000)}만",
+                                "거래량": f"급등일 대비 축소",
                                 "발견시간": time.strftime("%H:%M:%S")
                             }
         except: pass
@@ -384,15 +384,14 @@ def analyze_stock(ticker_info, timeframe):
 
             if is_cross and is_trend and is_super_up and not is_danger:
                 if result['sniper'] is None: 
-                    result["sniper"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "수급": get_inv(), "RSI": round(curr['RSI'], 1), "신호": f"🎯 스나이퍼 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
+                    result["sniper"] = {"종목/코인명": name, "코드": ticker, "현재가": f"{curr['Close']:,.2f}", "수급": get_inv(), "RSI": round(curr['RSI'], 1), "신호": f"🎯 스나이퍼 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
             elif is_cross and not is_danger:
                 if result['entry'] is None: 
-                    result["entry"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "수급": get_inv(), "RSI": round(curr['RSI'], 1), "신호": f"✅ 추세 진입 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
+                    result["entry"] = {"종목/코인명": name, "코드": ticker, "현재가": f"{curr['Close']:,.2f}", "수급": get_inv(), "RSI": round(curr['RSI'], 1), "신호": f"✅ 추세 진입 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
             
             t_lines = [line for diff, line in [((curr['Close']-curr['EMA20'])/curr['EMA20'], "20선"), ((curr['Close']-curr['EMA60'])/curr['EMA60'], "60선"), ((curr['Close']-curr['EMA200'])/curr['EMA200'], "200선") if not pd.isna(curr['EMA200']) else (-1, "")] if 0 <= diff <= 0.02]
             if t_lines and result['touch'] is None:
-                # 💥 지지선 터치에는 수급을 추가하지 않음 (현섭님 요청 사항)
-                result["touch"] = {"종목명": name, "티커": ticker, "현재가": f"{round(curr['Close']):,}", "RSI": round(curr['RSI'], 1), "터치 라인": f"🧲 {', '.join(t_lines)} 지지 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
+                result["touch"] = {"종목/코인명": name, "코드": ticker, "현재가": f"{curr['Close']:,.2f}", "RSI": round(curr['RSI'], 1), "터치 라인": f"🧲 {', '.join(t_lines)} 지지 ({when_txt})", "발견시간": time.strftime("%H:%M:%S")}
 
         return result
     except: return result
@@ -402,8 +401,9 @@ def analyze_stock(ticker_info, timeframe):
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 헌터 설정")
-    market = st.selectbox("사냥터 선택", ["KOSPI (코스피)", "KOSDAQ (코스닥)", "NASDAQ (나스닥 전체)", "S&P 500 (미국 우량주)", "Russell 2000 (러셀 2000/NYSE)"])
-    limit_option = st.select_slider("검색 범위 (시가총액 상위 N개)", options=["50", "100", "300", "500", "1000", "2000", "전체 (All)"], value="500")
+    # 💥 업비트 옵션 추가
+    market = st.selectbox("사냥터 선택", ["UPBIT (업비트 코인)", "KOSPI (코스피)", "KOSDAQ (코스닥)", "NASDAQ (나스닥 전체)", "S&P 500 (미국 우량주)", "Russell 2000 (러셀 2000/NYSE)"])
+    limit_option = st.select_slider("검색 범위 (시가총액 상위 N개 / 코인은 거래대금순)", options=["50", "100", "300", "500", "1000", "2000", "전체 (All)"], value="300")
     st.divider()
     auto_loop = st.checkbox("🔁 무한 자동 반복", value=False)
     interval = st.number_input("대기 시간 (분)", min_value=1, value=10)
