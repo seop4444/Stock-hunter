@@ -223,16 +223,40 @@ def analyze_stock(ticker_info, timeframe):
         return investor_data
     
     try:
-        # 코인(-KRW)은 야후 파이낸스(24시간 연중무휴)에서 데이터 호출
+        # 💥 코인(-KRW)은 야후 파이낸스 버리고 '업비트 공식 API' 100% 직결 호출
         if "-KRW" in ticker:
-            tkr = yf.Ticker(ticker)
-            df = tkr.history(period="1y", interval="1d") if timeframe == "1D" else tkr.history(period="60d", interval="1h")
+            upbit_ticker = "KRW-" + ticker.replace("-KRW", "")
+            
+            # 1D(일봉) 또는 4H(4시간봉 - 업비트는 분봉 API 240분 사용)
+            if timeframe == "1D":
+                url = f"https://api.upbit.com/v1/candles/days?market={upbit_ticker}&count=200"
+            else:
+                url = f"https://api.upbit.com/v1/candles/minutes/240?market={upbit_ticker}&count=200"
+                
+            res = requests.get(url, headers={"accept": "application/json"}, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                df = pd.DataFrame(data)
+                df = df.rename(columns={
+                    'candle_date_time_kst': 'Date',
+                    'opening_price': 'Open',
+                    'high_price': 'High',
+                    'low_price': 'Low',
+                    'trade_price': 'Close',
+                    'candle_acc_trade_volume': 'Volume'
+                })
+                df['Date'] = pd.to_datetime(df['Date'])
+                df = df.set_index('Date').sort_index()
+            else:
+                return result
+                
         # 한국 주식은 fdr 호출 (지연 방지)
         elif timeframe == "1D" and (".KS" in ticker or ".KQ" in ticker):
             clean_ticker = ticker.split('.')[0]
             df = fdr.DataReader(clean_ticker)
             if not df.empty:
                 df = df.tail(250)
+        # 미국 주식은 기존대로 yfinance 사용
         else:
             tkr = yf.Ticker(ticker)
             df = tkr.history(period="1y", interval="1d") if timeframe == "1D" else tkr.history(period="60d", interval="1h")
