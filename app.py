@@ -162,12 +162,24 @@ def get_investor_trend(ticker):
     if "-KRW" in ticker or (".KS" not in ticker and ".KQ" not in ticker):
         return "-"
     try:
-        clean_ticker = ticker.split('.')[0]
+        clean_ticker = str(ticker).split('.')[0].strip()
         url = f"https://finance.naver.com/item/frgn.naver?code={clean_ticker}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
+        
+        # 🛡️ 봇 차단(Rate Limit / 403) 방지를 위한 브라우저 위장 헤더 강화
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/main.naver?code={clean_ticker}',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+        }
         
         res = requests.get(url, headers=headers, timeout=5)
         res.encoding = 'euc-kr' 
+        
+        # 네이버에서 트래픽 과다로 일시 차단을 먹인 경우 에러 표시
+        if res.status_code != 200:
+            return "접속차단(네이버)"
+
         dfs = pd.read_html(io.StringIO(res.text))
         
         for df in dfs:
@@ -175,15 +187,20 @@ def get_investor_trend(ticker):
             if '기관' in cols_str and '외국인' in cols_str:
                 df_clean = df.dropna(how='all')
                 for idx, row in df_clean.iterrows():
-                    if str(row.iloc[0]).count('.') == 2: 
+                    # 2024.11.20 같은 '날짜'가 있는 첫 번째 데이터 행 찾기
+                    if str(row.iloc[0]).count('.') == 2 and len(str(row.iloc[0])) <= 10: 
                         inst = str(row.iloc[5]).replace(',', '').replace('+', '')
                         frgn = str(row.iloc[6]).replace(',', '').replace('+', '')
+                        
+                        if inst == 'nan' or frgn == 'nan':
+                            return "장마감 집계중"
+                            
                         try:
                             inst_buy = int(float(inst))
                             foreign_buy = int(float(frgn))
                             indiv_buy = -(inst_buy + foreign_buy) 
                         except:
-                            return "장마감 집계중"
+                            return "집계 대기중"
                             
                         def fmt(v):
                             if v > 0: return f"🔴+{v:,}"
@@ -191,9 +208,17 @@ def get_investor_trend(ticker):
                             return "0"
                             
                         return f"개인 {fmt(indiv_buy)} | 외인 {fmt(foreign_buy)} | 기관 {fmt(inst_buy)}"
+                        
         return "데이터 없음"
+    
     except Exception as e:
-        return "수집 지연"
+        # 무조건 '수집 지연'으로 뜨지 않고, 정확히 뭐가 문제인지 원인을 표시하도록 수정
+        err_msg = str(e).lower()
+        if "lxml" in err_msg or "html5lib" in err_msg:
+            return "파서(lxml) 필요"
+        elif "timeout" in err_msg:
+            return "응답 지연"
+        return "수집 실패"
 
 # ==========================================
 # 3. 보조지표
