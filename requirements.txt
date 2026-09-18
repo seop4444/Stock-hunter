@@ -3,4 +3,6 @@ finance-datareader
 yfinance
 pandas
 requests
+lxml
+html5lib
 #https://stock-hunter.streamlit.app/
