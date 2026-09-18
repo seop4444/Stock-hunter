@@ -120,23 +120,35 @@ def get_stock_list_final(market_name, scan_limit):
                 if not any(kw.lower() in name.lower() for kw in us_garbage): results.append({"code": ticker, "name": name})
             return results
         else:
-            sosok = "0" if "KOSPI" in market_name else "1"
+            # === [수정된 부분] 네이버 크롤링 버리고 안정적인 fdr 라이브러리 직접 호출 ===
+            market_cd = "KOSPI" if "KOSPI" in market_name else "KOSDAQ"
             suffix = ".KS" if "KOSPI" in market_name else ".KQ"
             limit_val = 2000 if scan_limit == "전체 (All)" else int(scan_limit)
-            max_pages = (limit_val // 50) + 2
             
-            dummy_timestamp = int(time.time() * 1000)
+            # fdr을 통해 최신 종목 리스트 획득
+            df = fdr.StockListing(market_cd)
             
-            for page in range(1, max_pages):
-                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}&dummy={dummy_timestamp}"
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
-                res = requests.get(url, headers=headers)
-                matches = re.findall(r'href="/item/main\.naver\?code=(\d+)".*?class="tltle">(.*?)</a>', res.text)
-                if not matches: break
-                for ticker, name in matches:
-                    is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
-                    if not is_garbage: results.append({"code": ticker + suffix, "name": name})
-                if len(results) >= limit_val: break
+            # 시가총액(Marcap) 기준으로 내림차순 정렬 (우량주부터 스캔하기 위함)
+            col_map = {c.lower(): c for c in df.columns}
+            if 'marcap' in col_map: 
+                df = df.sort_values(by=col_map['marcap'], ascending=False)
+            elif 'marketcap' in col_map: 
+                df = df.sort_values(by=col_map['marketcap'], ascending=False)
+                
+            for idx, row in df.iterrows():
+                ticker = str(row.get('Symbol', row.get('Code', '')))
+                name = row.get('Name', ticker)
+                
+                # ETF, ETN, 스팩, 우선주 등 제외
+                is_garbage = any(kw in name.upper() for kw in kr_garbage) or name.endswith('우') or name.endswith('우B') or '우(' in name
+                
+                if not is_garbage: 
+                    results.append({"code": ticker + suffix, "name": name})
+                
+                # 설정한 검색 갯수에 도달하면 중단
+                if len(results) >= limit_val: 
+                    break
+                    
             return results
     except Exception as e:
         st.error(f"⚠️ 리스트 수집 오류: {str(e)}")
